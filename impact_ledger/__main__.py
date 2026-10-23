@@ -20,7 +20,7 @@ def main(argv=None):
     load = commands.add_parser('import', help='Atomically append a validated UTF-8 CSV')
     load.add_argument('kind', choices=['sessions', 'attendance'])
     load.add_argument('file', type=Path)
-    for command in ['summary', 'export']:
+    for command in ['summary', 'comparison', 'export']:
         subparser = commands.add_parser(command)
         if command == 'export':
             subparser.add_argument('kind', choices=['sessions', 'attendance'])
@@ -38,7 +38,7 @@ def main(argv=None):
         elif args.command == 'import':
             with args.file.open('rb') as source:
                 result = store.import_csv(args.kind, source.read(MAX_BYTES + 1))
-        elif args.command in ['summary', 'export']:
+        elif args.command in ['summary', 'comparison', 'export']:
             filters = {key: getattr(args, key) for key in ['start', 'end', 'program']}
             if args.command == 'export':
                 output = store.export_csv(args.kind, **filters)
@@ -47,7 +47,7 @@ def main(argv=None):
                 else:
                     sys.stdout.buffer.write(output)
                 return 0
-            result = store.summary(**filters)
+            result = store.comparison(**filters) if args.command == 'comparison' else store.summary(**filters)
         else:
             if not 0 <= args.port <= 65535:
                 raise ValidationError('Port must be between 0 and 65535.')

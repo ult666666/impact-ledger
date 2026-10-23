@@ -56,3 +56,11 @@ Every measure uses the selected session set after inclusive dates and exact prog
 Overall distinct participants are calculated across all selected records, not by adding program/month distinct totals. Monthly values group sessions by `YYYY-MM`; program values group exact labels. Financial denominator stays at session level. Empty filters produce zero counts/amounts, empty arrays, and `null` ratios.
 
 There is no attendance rate, outcome score, causal-impact estimate, or eligible-population denominator. The dashboard cannot infer the quality or consequences of participation.
+
+## Prior-period comparison
+
+Comparison requires explicit inclusive start and end dates; summary remains usable without either date. `days` is the inclusive number of calendar days. The previous period ends the day before current start and contains the same `days`, with the same exact program filter. Example: 2026-09-01–2026-09-30 compares to 2026-08-02–2026-08-31. Dates are calendar-based and independent of DST. A prior window before year 0001 is rejected.
+
+`current` and `previous` each contain `start`, `end`, and the standard `totals` object. People are distinct inside each window; a returning person counts in both windows. Session spending is counted once regardless of attendance. `deltas` reports current minus previous for the first eight numeric measures above (sessions through variance), calculated in integer units before JSON conversion. Negative variance is under-budget spending; a negative variance delta alone does not mean improvement. No percentage-change fields are emitted. Empty windows have zero counts/amounts and null standard ratios when their denominator is zero.
+
+Print reports show the applied filter labels, these current totals, and comparison if enabled and available. All records remain synthetic and activity is not causal impact.

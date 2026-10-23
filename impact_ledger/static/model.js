@@ -16,6 +16,18 @@ function ratio(numerator, denominator, multiplier = 1) {
         throw new Error('Static ratio exceeds safe integer limits.');
     return sign * Number(rounded) / 100;
 }
+function hundredthTotals(rows) {
+    const budget = rows.reduce((sum, row) => sum + row.budget_cents, 0);
+    const actual = rows.reduce((sum, row) => sum + row.actual_cents, 0);
+    const units = {
+        participant_hours: rows.reduce((sum, row) => sum + row.duration_hundredths * row.participants.length, 0),
+        session_hours: rows.reduce((sum, row) => sum + row.duration_hundredths, 0),
+        budget, actual, variance: actual - budget,
+    };
+    for (const value of Object.values(units))
+        assertSafeInteger(value);
+    return units;
+}
 function summarize(rows) {
     const people = new Set(rows.flatMap(row => row.participants));
     const attendance = rows.reduce((sum, row) => sum + row.participants.length, 0);
@@ -36,14 +48,54 @@ function summarize(rows) {
 }
 function filterRows(snapshot, filters) {
     for (const value of [filters.start, filters.end]) {
-        if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) {
+        if (value && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000') || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) {
             throw new Error('Enter a valid date in YYYY-MM-DD format.');
         }
     }
     if (filters.start && filters.end && filters.start > filters.end)
         throw new Error('Start date must be on or before end date.');
+    const program = filters.program;
+    // Match Python str.strip whitespace and codepoint length (JS trim/length differ).
+    if (program && (/^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$/u.test(program) || [...program].length > 80 || /^[=+@-]/.test(program) || /[\u0000-\u001f\u007f\ud800-\udfff]/u.test(program))) {
+        throw new Error('Program must be a valid label with 1–80 characters.');
+    }
     return snapshot.sessions.filter(row => (!filters.start || row.session_date >= filters.start) &&
         (!filters.end || row.session_date <= filters.end) && (!filters.program || row.program === filters.program));
+}
+export function comparisonFromSnapshot(snapshot, filters) {
+    if (!filters.start || !filters.end)
+        throw new Error('Comparison requires both start and end dates. Set both dates and apply filters.');
+    const rows = filterRows(snapshot, filters);
+    const program = filters.program;
+    // ISO dates and UTC day numbers have no dependence on local time or DST.
+    const day = 86400000;
+    const first = Date.parse(filters.start + 'T00:00:00Z');
+    const last = Date.parse(filters.end + 'T00:00:00Z');
+    const days = (last - first) / day + 1;
+    if (first - days * day < Date.parse('0001-01-01T00:00:00Z')) {
+        throw new Error('Previous period would start before 0001-01-01. Choose a later or shorter range.');
+    }
+    const previousStart = new Date(first - days * day).toISOString().slice(0, 10);
+    const previousEnd = new Date(first - day).toISOString().slice(0, 10);
+    const current = summarize(rows);
+    const previousRows = filterRows(snapshot, { start: previousStart, end: previousEnd, program: program ?? null });
+    const previous = summarize(previousRows);
+    const currentExact = hundredthTotals(rows), previousExact = hundredthTotals(previousRows);
+    const deltas = {};
+    for (const key of ['sessions', 'unique_participants', 'attendance'])
+        deltas[key] = current[key] - previous[key];
+    for (const key of ['participant_hours', 'session_hours', 'budget', 'actual', 'variance']) {
+        const currentUnits = currentExact[key], previousUnits = previousExact[key];
+        assertSafeInteger(currentUnits);
+        assertSafeInteger(previousUnits);
+        const units = BigInt(currentUnits) - BigInt(previousUnits);
+        if (units > BigInt(Number.MAX_SAFE_INTEGER) || units < -BigInt(Number.MAX_SAFE_INTEGER))
+            throw new Error('Static calculation exceeds safe integer limits.');
+        deltas[key] = Number(units) / 100;
+    }
+    return { synthetic: true, currency: 'USD', filters: { start: filters.start, end: filters.end, program: program || null }, days,
+        current: { start: filters.start, end: filters.end, totals: current },
+        previous: { start: previousStart, end: previousEnd, totals: previous }, deltas };
 }
 export function summaryFromSnapshot(snapshot, filters) {
     const rows = filterRows(snapshot, filters);

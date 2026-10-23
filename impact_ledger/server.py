@@ -91,9 +91,10 @@ def create_server(store, port=8765):
                     elif path == '/api/meta':
                         self.query(set())
                         self.respond(200, store.metadata())
-                    elif path in ('/api/summary', '/api/snapshot'):
+                    elif path in ('/api/summary', '/api/snapshot', '/api/comparison'):
                         params = self.query({'start', 'end', 'program'})
-                        result = store.summary(**params) if path.endswith('summary') else store.snapshot(**params)
+                        method = {'/api/summary': store.summary, '/api/snapshot': store.snapshot, '/api/comparison': store.comparison}[path]
+                        result = method(**params)
                         self.respond(200, result)
                     elif path == '/api/export':
                         params = self.query({'kind', 'start', 'end', 'program'})
@@ -105,7 +106,7 @@ def create_server(store, port=8765):
                         self.error(404, 'Route not found.')
                 elif self.command == 'POST' and path == '/api/import':
                     self.import_request()
-                elif path in {'/api/health', '/api/meta', '/api/summary', '/api/snapshot', '/api/export'}:
+                elif path in {'/api/health', '/api/meta', '/api/summary', '/api/snapshot', '/api/comparison', '/api/export'}:
                     self.error(405, 'Method not allowed for this route.')
                 else:
                     self.error(404, 'Route not found.')

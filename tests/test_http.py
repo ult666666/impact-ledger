@@ -50,6 +50,24 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(json.loads(body)['sessions'], 4)
         self.assertTrue(json.loads(body)['synthetic'])
 
+    def test_real_comparison_returns_the_same_program_and_equal_windows(self):
+        self.populated()
+        status, _, body = self.request('GET', '/api/comparison?start=2026-02-01&end=2026-02-28&program=Learning%20Lab')
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertEqual(result, self.store.comparison('2026-02-01', '2026-02-28', 'Learning Lab'))
+        self.assertEqual(result['previous']['start'], '2026-01-04')
+        self.assertEqual(result['deltas']['budget'], -50.1)
+
+    def test_comparison_http_errors_are_controlled_and_summary_stays_unbounded(self):
+        for query in ['', 'start=2026-02-01', 'end=2026-02-28', 'start=2026-02-30&end=2026-03-01', 'start=0001-01-01&end=0001-01-01', 'start=2026-03-01&end=2026-02-01', 'start=2026-02-01&end=2026-02-28&program=A&program=B']:
+            with self.subTest(query=query):
+                status, _, body = self.request('GET', '/api/comparison?' + query)
+                self.assertEqual(status, 400)
+                self.assertIn('error', json.loads(body))
+        self.assertEqual(self.request('GET', '/api/summary')[0], 200)
+        self.assertEqual(self.request('POST', '/api/comparison')[0], 405)
+
     def test_real_csv_import_and_export(self):
         status, _, body = self.request('POST', '/api/import?kind=sessions', SESSIONS.encode(), {'Content-Type': 'text/csv; charset=utf-8'})
         self.assertEqual((status, json.loads(body)['imported']), (201, 4))

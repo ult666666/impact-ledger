@@ -36,11 +36,15 @@ python3 -m venv .local/venv
 
 - Apply inclusive date and program filters to every metric, chart, table, and export.
 - Count people distinctly across selected sessions, attendance once per person/session, and spending once per session.
+- Opt in to **Compare prior period** for an explicit applied start/end date range. The previous window has the same number of calendar days and uses the same program. Both windows show totals and signed deltas; people can recur in both.
+- Choose **Print report** for a synthetic stakeholder report with applied filters, all current totals, charts, tables, and comparison when enabled. Browser print settings can save a PDF. The button explains and blocks unfinished views/import refreshes or enabled comparisons still loading; a completed unavailable comparison prints its reason.
 - Compare actual and budget in USD. Percent variance uses budget as denominator and is undefined at zero budget.
 - Open the exact accessible tables under both charts; use a keyboard to navigate the session table on small screens.
 - Import UTF-8 CSV atomically. Files with bad headers, invalid dates/amounts, duplicate IDs, missing session references, or excess size/rows add **nothing**.
-- Export both session and attendance CSVs for the **applied** filters. Edits in the form take effect when you choose Apply filters.
+- Export both session and attendance CSVs for the **applied** filters. Edits in the form take effect when you choose Apply filters. Import completion reloads the latest submitted filters, including a request still loading, without applying draft edits.
 - Try an empty date range: the interface reports zero activity rather than substituting demo totals.
+
+Comparison requires both explicit dates. Set them and choose Apply filters if a visible message requests them. A 2026-09-01 through 2026-09-30 current window compares with 2026-08-02 through 2026-08-31, not the previous calendar month. Empty windows show zeros. Signed changes describe activity; lower variance alone does not establish improvement. [Comparison and print example](docs/screenshots/print-report.png).
 
 ## CSV and CLI handoff
 
@@ -50,6 +54,7 @@ Import sessions before attendance. A session can have zero attendance; its spend
 python3 -m impact_ledger --db .local/example.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import attendance examples/attendance.csv
 python3 -m impact_ledger --db .local/example.db summary --program '社区服务'
+python3 -m impact_ledger --db .local/demo.db comparison --start 2026-09-01 --end 2026-09-30 --program 'Learning Lab'
 python3 -m impact_ledger --db .local/example.db export sessions --start 2026-10-01 --end 2026-10-31 --output .local/sessions.csv
 ```
 

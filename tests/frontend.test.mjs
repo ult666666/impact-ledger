@@ -48,7 +48,7 @@ test('static attendance export retains original attendance IDs and filters', () 
   assert.equal(csvFromSnapshot('attendance', snapshot, {program: 'Community Kitchen'}), 'attendance_id,session_id,participant_id\r\na4,s3,p3\r\n');
 });
 test('static filters reject invalid and reversed dates', () => {
-  for (const filters of [{start: '2026-2-01'}, {start: '2026-02-30'}, {start: '2026-02-01', end: '2026-01-01'}]) {
+  for (const filters of [{start: '0000-01-01'}, {start: '2026-2-01'}, {start: '2026-02-30'}, {start: '2026-02-01', end: '2026-01-01'}]) {
     assert.throws(() => summaryFromSnapshot(snapshot, filters));
   }
 });
@@ -67,4 +67,37 @@ test('static aggregation refuses totals outside the exact integer range', () => 
   const fixture = structuredClone(snapshot);
   fixture.sessions[0].budget_cents = Number.MAX_SAFE_INTEGER;
   assert.throws(() => summaryFromSnapshot(fixture, {}), /safe integer/i);
+});
+
+test('static comparison matches the shared Python calendar and exact accounting oracle', async () => {
+  const {readFile} = await import('node:fs/promises');
+  const model = await import('../impact_ledger/static/model.js');
+  assert.equal(typeof model.comparisonFromSnapshot, 'function');
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/comparison.json', import.meta.url), 'utf8'));
+  for (const item of fixture.cases) assert.deepEqual(model.comparisonFromSnapshot(fixture.snapshot, item.filters), item.expected, item.name);
+});
+
+test('static comparison rejects shared absent, invalid, reversed and underflow ranges', async () => {
+  const {readFile} = await import('node:fs/promises');
+  const model = await import('../impact_ledger/static/model.js');
+  assert.equal(typeof model.comparisonFromSnapshot, 'function');
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/comparison.json', import.meta.url), 'utf8'));
+  for (const filters of fixture.invalid_filters) assert.throws(() => model.comparisonFromSnapshot(fixture.snapshot, filters), undefined, JSON.stringify(filters));
+});
+
+test('comparison subtracts integer cents before JSON conversion at large exact totals', async () => {
+  const {comparisonFromSnapshot} = await import('../impact_ledger/static/model.js');
+  const fixture = structuredClone(snapshot);
+  const previous = {...fixture.sessions[0], session_date: '2026-01-01', budget_cents: 9007199254740962, actual_cents: 0};
+  const current = {...previous, session_date: '2026-01-02', budget_cents: 9007199254740963};
+  fixture.sessions = [previous, current];
+  assert.equal(comparisonFromSnapshot(fixture, {start: '2026-01-02', end: '2026-01-02'}).deltas.budget, 0.01);
+});
+
+test('all static filter paths reject invalid program labels consistently with the local store', () => {
+  for (const program of ['=Formula', '\u0085Lab', 'Lab ', '🌱'.repeat(81), '\ud800']) {
+    assert.throws(() => summaryFromSnapshot(snapshot, {program}));
+    assert.throws(() => csvFromSnapshot('sessions', snapshot, {program}));
+  }
+  assert.equal(summaryFromSnapshot(snapshot, {program: '🌱'.repeat(80)}).totals.sessions, 0);
 });

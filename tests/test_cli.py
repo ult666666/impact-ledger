@@ -23,6 +23,24 @@ class CLITests(unittest.TestCase):
         self.assertEqual(summary.returncode, 0, summary.stderr)
         self.assertEqual(json.loads(summary.stdout)['totals']['sessions'], 12)
 
+    def test_comparison_cli_outputs_equal_calendar_windows_and_filters(self):
+        self.run_cli('seed')
+        result = self.run_cli('comparison', '--start', '2026-09-01', '--end', '2026-09-30', '--program', 'Learning Lab')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        comparison = json.loads(result.stdout)
+        self.assertEqual(comparison['days'], 30)
+        self.assertEqual(comparison['previous']['start'], '2026-08-02')
+        self.assertEqual(comparison['previous']['end'], '2026-08-31')
+        self.assertEqual(comparison['current']['totals']['sessions'], 3)
+        self.assertEqual(comparison['filters']['program'], 'Learning Lab')
+
+    def test_comparison_cli_validation_does_not_emit_tracebacks(self):
+        for filters in [[], ['--start', '2026-01-01'], ['--start', '0001-01-01', '--end', '0001-01-01'], ['--start', '2026-02-30', '--end', '2026-03-01']]:
+            result = self.run_cli('comparison', *filters)
+            self.assertEqual(result.returncode, 2)
+            self.assertNotIn('Traceback', result.stderr)
+            self.assertTrue(result.stderr.startswith('impact-ledger:'), result.stderr)
+
     def test_cli_errors_use_exit_two_without_traceback(self):
         self.run_cli('seed')
         repeated = self.run_cli('seed')
