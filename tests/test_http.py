@@ -78,6 +78,43 @@ class HTTPTests(unittest.TestCase):
         self.assertIn(b's2,Learning Lab,2026-02-10,2.00,50.00,75.00', body)
         self.assertNotIn(b's1,', body)
 
+    def test_preview_route_returns_valid_and_invalid_diagnostics_without_importing(self):
+        before = (self.store.path.read_bytes(), self.store.path.stat().st_mtime_ns)
+        for payload, valid in [(SESSIONS.encode(), True), (b'\xff', False),
+                               ((SESSION_HEADER + 'bad,Lab,2026-02-30,0,NaN,1\n').encode(), False)]:
+            status, _, body = self.request('POST', '/api/import/preview?kind=sessions', payload, {'Content-Type': 'text/csv; charset=utf-8'})
+            self.assertEqual(status, 200)
+            result = json.loads(body)
+            self.assertEqual(result['valid'], valid)
+        self.assertEqual(before, (self.store.path.read_bytes(), self.store.path.stat().st_mtime_ns))
+        self.assertEqual(self.store.metadata()['sessions'], 0)
+        self.assertEqual(self.request('GET', '/api/import/preview?kind=sessions')[0], 405)
+        self.assertEqual(self.request('DELETE', '/api/import/preview?kind=sessions')[0], 405)
+        for query in ['kind=unknown', '', 'kind=sessions&kind=sessions', 'kind=sessions&extra=1']:
+            self.assertEqual(self.request('POST', '/api/import/preview?' + query, b'', {'Content-Type': 'text/csv'})[0], 400)
+
+    def test_preview_and_import_share_http_framing_and_origin_checks(self):
+        for route in ['/api/import', '/api/import/preview']:
+            for extra, expected in [({'Host': 'evil.example'}, 403), ({'Origin': 'null'}, 403),
+                                    ({'Origin': 'https://evil.example'}, 403), ({'Sec-Fetch-Site': 'cross-site'}, 403),
+                                    ({'Transfer-Encoding': 'chunked'}, 400), ({'Content-Length': '-1'}, 400),
+                                    ({'Content-Length': '9' * 5000}, 400), ({'Content-Length': str(MAX_BYTES + 1)}, 413),
+                                    ({'Content-Type': 'application/json'}, 415), ({'Content-Type': 'text/csv; charset=latin1'}, 415)]:
+                with self.subTest(route=route, extra=extra):
+                    status, _, body = self.request('POST', route + '?kind=sessions', b'', {'Content-Type': 'text/csv', **extra})
+                    self.assertEqual(status, expected)
+                    self.assertIn('error', json.loads(body))
+            for framing, expected in [('', b'411'), ('Content-Length: 100\r\n', b'400'),
+                                      ('Content-Length: 1\r\nContent-Length: 1\r\n', b'400')]:
+                with socket.create_connection(('127.0.0.1', self.port), timeout=3) as connection:
+                    connection.sendall(f'POST {route}?kind=sessions HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\nContent-Type: text/csv\r\n{framing}\r\nx'.encode())
+                    connection.shutdown(socket.SHUT_WR)
+                    received = b''
+                    while chunk := connection.recv(4096):
+                        received += chunk
+                self.assertIn(expected, received.split(b'\r\n', 1)[0])
+        self.assertEqual(self.store.metadata()['sessions'], 0)
+
     def test_http_import_failure_is_atomic(self):
         payload = SESSION_HEADER + 'new,Lab,2026-01-01,1,1,1\nbad,Lab,2026-02-30,1,1,1\n'
         status, _, body = self.request('POST', '/api/import?kind=sessions', payload.encode(), {'Content-Type': 'text/csv'})

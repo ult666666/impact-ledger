@@ -3,62 +3,12 @@ from collections import defaultdict
 from contextlib import contextmanager
 import csv
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 import io
 from pathlib import Path
-import re
 import sqlite3
 
-MAX_BYTES = 1024 * 1024
-MAX_ROWS = 5000
-HEADERS = {
-    'sessions': ['session_id', 'program', 'session_date', 'duration_hours', 'budget', 'actual'],
-    'attendance': ['attendance_id', 'session_id', 'participant_id'],
-}
-IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z')
-
-
-class ValidationError(ValueError):
-    """A user-supplied request violates the import/filter contract."""
-
-
-def valid_date(value):
-    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
-        raise ValidationError('Dates must use YYYY-MM-DD.')
-    try:
-        date.fromisoformat(value)
-    except ValueError as exc:
-        raise ValidationError('Date does not exist.') from exc
-    return value
-
-
-def program_label(value):
-    if not isinstance(value, str) or not value or value != value.strip() or len(value) > 80:
-        raise ValidationError('Program must have 1–80 characters without surrounding spaces.')
-    if any(ord(c) < 32 or ord(c) == 127 or 0xD800 <= ord(c) <= 0xDFFF for c in value):
-        raise ValidationError('Program contains a control character.')
-    if value[0] in '=+-@':
-        raise ValidationError('Program cannot begin with a spreadsheet formula marker.')
-    return value
-
-
-def identifier(value):
-    if not isinstance(value, str) or not IDENTIFIER.fullmatch(value):
-        raise ValidationError('IDs must be 1–64 ASCII letters, digits, dots, underscores or hyphens, starting with a letter or digit.')
-    return value
-
-
-def scaled(value, label, maximum, allow_zero=True):
-    # Bounded syntax prevents nonfinite values, exponent bombs and accidental rounding.
-    if not re.fullmatch(r'(?:0|[1-9]\d{0,7})(?:\.\d{1,2})?', value):
-        raise ValidationError(f'{label} must be a nonnegative decimal with at most two decimal places.')
-    try:
-        number = Decimal(value)
-    except InvalidOperation as exc:
-        raise ValidationError(f'Invalid {label}.') from exc
-    if number > maximum or (not allow_zero and number == 0):
-        raise ValidationError(f'{label} is outside the supported range.')
-    return int(number * 100)
+from .csv_import import HEADERS, MAX_BYTES, MAX_ROWS, ValidationError, program_label, valid_date, validate_csv, validate_kind
 
 
 def ratio(numerator, denominator):
@@ -116,6 +66,16 @@ class Store:
                 CREATE INDEX IF NOT EXISTS attendance_session ON attendance(session_id);
             ''')
 
+    @classmethod
+    def open_existing(cls, path):
+        """Open an initialized ledger without creating paths or running schema DDL."""
+        store = cls.__new__(cls)
+        store.path = Path(path)
+        with store._read_connection() as connection:
+            connection.execute('SELECT session_id,program,session_date,duration_hundredths,budget_cents,actual_cents FROM sessions LIMIT 0')
+            connection.execute('SELECT attendance_id,session_id,participant_id FROM attendance LIMIT 0')
+        return store
+
     @contextmanager
     def _connection(self):
         connection = sqlite3.connect(self.path, timeout=5)
@@ -127,46 +87,37 @@ class Store:
         finally:
             connection.close()
 
+    @contextmanager
+    def _read_connection(self):
+        # mode=ro cannot create the database or execute schema/data writes.
+        connection = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute('BEGIN')
+            yield connection
+        finally:
+            connection.close()
+
+    def preview_csv(self, kind, payload):
+        validate_kind(kind)
+        with self._read_connection() as connection:
+            result, _ = validate_csv(kind, payload, connection)
+            return result
+
     def import_csv(self, kind, payload):
-        if kind not in HEADERS:
-            raise ValidationError('Import kind must be sessions or attendance.')
-        if len(payload) > MAX_BYTES:
-            raise ValidationError('CSV exceeds the 1 MiB limit.')
-        try:
-            content = payload.decode('utf-8-sig')
-        except UnicodeDecodeError as exc:
-            raise ValidationError('CSV must be valid UTF-8.') from exc
-        rows = []
-        try:
-            reader = csv.reader(io.StringIO(content, newline=''), strict=True)
-            if next(reader, None) != HEADERS[kind]:
-                raise ValidationError('CSV headers must exactly match: ' + ','.join(HEADERS[kind]))
-            for index, row in enumerate(reader, 2):
-                if len(rows) >= MAX_ROWS:
-                    raise ValidationError('CSV exceeds the 5,000 data-row limit.')
-                if len(row) != len(HEADERS[kind]):
-                    raise ValidationError(f'Row {index}: wrong number of columns.')
-                try:
-                    if kind == 'sessions':
-                        sid, program, day, hours, budget, actual = row
-                        parsed = (identifier(sid), program_label(program), valid_date(day),
-                                  scaled(hours, 'Duration hours', Decimal(24), False),
-                                  scaled(budget, 'Budget', Decimal(10000000)),
-                                  scaled(actual, 'Actual', Decimal(10000000)))
-                    else:
-                        parsed = tuple(identifier(value) for value in row)
-                except ValidationError as exc:
-                    raise ValidationError(f'Row {index}: {exc}') from exc
-                rows.append(parsed)
-        except csv.Error as exc:
-            raise ValidationError('Malformed CSV quoting or field size.') from exc
-        if not rows:
-            raise ValidationError('CSV must contain at least one data row.')
-        table = 'sessions' if kind == 'sessions' else 'attendance'
-        placeholders = '?,?,?,?,?,?' if kind == 'sessions' else '?,?,?'
+        validate_kind(kind)
         try:
             with self._connection() as connection:
-                connection.executemany(f'INSERT INTO {table} VALUES ({placeholders})', rows)
+                # Revalidate current state after acquiring the writer transaction.
+                # A prior preview never reserves an ID or authorizes these bytes.
+                connection.execute('BEGIN IMMEDIATE')
+                result, rows = validate_csv(kind, payload, connection)
+                if not result['valid']:
+                    first = result['errors'][0]
+                    location = f"Row {first['row']}: " if first['row'] is not None else ''
+                    raise ValidationError(location + first['message'] + ' No rows were added.')
+                placeholders = '?,?,?,?,?,?' if kind == 'sessions' else '?,?,?'
+                connection.executemany(f'INSERT INTO {kind} VALUES ({placeholders})', rows)
         except sqlite3.IntegrityError as exc:
             raise ValidationError('Import rejected: duplicate ID, duplicate person/session pair, or unknown session. No rows were added.') from exc
         return {'kind': kind, 'imported': len(rows)}

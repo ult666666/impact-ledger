@@ -23,6 +23,8 @@ python3 -m impact_ledger --db .local/demo.db serve
 
 出席和支出仅描述活动与覆盖范围，**不能证明项目效果或因果影响**。不同项目或月份的独立人数可能重叠，不应直接相加。
 
+可先点击 **Preview CSV**，按 CSV 行号、列名和修复提示检查错误；这是可选步骤，预览不会新增记录或占用 ID。更换文件或记录类型会清除旧结果；同名文件的新内容也必须重新检查。最多显示 100 条错误。预览仅反映当时数据库状态，点击 **Import CSV** 后仍会重新校验当前文件与数据库；其他导入可能导致原本有效的预览在正式导入时被整体拒绝。
+
 CSV 导入先导入活动，再导入出席记录。表头顺序必须完全一致：
 
 ```csv
@@ -36,11 +38,15 @@ attendance_id,session_id,participant_id
 日期格式为 `YYYY-MM-DD`。金额单位为美元，金额与小时最多两位小数。负数、非有限数、重复 ID、不存在的活动引用、错误日期等会导致**整个文件回滚**，不会部分导入。每份文件最多 1 MiB、5,000 行。项目名支持中文；ID 使用英文字母、数字、点、下划线或短横线。
 
 ```sh
+python3 -m impact_ledger --db .local/example.db init
+python3 -m impact_ledger --db .local/example.db preview-import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import attendance examples/attendance.csv
 python3 -m impact_ledger --db .local/example.db summary --program '社区服务'
 python3 -m impact_ledger --db .local/demo.db comparison --start 2026-09-01 --end 2026-09-30 --program 'Learning Lab'
 ```
+
+`preview-import` 输出 JSON：有效时退出码 0，CSV 校验问题为 1，用法、文件或数据库错误为 2。必须先有已初始化的数据库；预览不会创建不存在的数据库路径或初始化空文件。API 与错误代码见 [接口说明](API.md)。
 
 开发与测试需要 Node 24+：
 
@@ -54,6 +60,6 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-构建后的 `site/` 是只读静态演示。它支持筛选和 CSV 导出，明确禁用导入；修改 SQLite 数据需要运行本地服务。该项目没有登录、权限管理、审计历史、备份管理或生产环境安全保障。请勿公开部署 Python 写入服务。
+构建后的 `site/` 是只读静态演示。它支持筛选和 CSV 导出，明确禁用 CSV 校验预览与导入；检查数据库 ID、活动引用或修改 SQLite 数据需要运行本地 API 服务，不会把静态演示当作数据库校验。该项目没有登录、权限管理、审计历史、备份管理或生产环境安全保障。请勿公开部署 Python 写入服务。
 
 初始实现使用了 AI 辅助开发，并通过自动化计算、真实 HTTP、浏览器交互和视觉检查；具体范围见 [验证记录](VERIFICATION.md)。完整定义见 [数据字典](DATA_DICTIONARY.md)。

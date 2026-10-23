@@ -58,6 +58,40 @@ class CLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('社区厨房,2026-01-01,1.25,100.00,110.00', output.read_text())
 
+    def test_preview_cli_outputs_json_exit_zero_or_one_and_never_imports(self):
+        self.assertEqual(self.run_cli('init').returncode, 0)
+        source = Path(self.temp.name) / 'sessions.csv'
+        source.write_text('session_id,program,session_date,duration_hours,budget,actual\ns1,Lab,2026-01-01,1,0,1\n')
+        before = (self.db.read_bytes(), self.db.stat().st_mtime_ns)
+        valid = self.run_cli('preview-import', 'sessions', str(source))
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertEqual((json.loads(valid.stdout)['valid'], json.loads(valid.stdout)['rows']), (True, 1))
+        source.write_bytes(b'\xff')
+        invalid = self.run_cli('preview-import', 'sessions', str(source))
+        self.assertEqual(invalid.returncode, 1, invalid.stderr)
+        self.assertEqual(json.loads(invalid.stdout)['errors'][0]['code'], 'encoding')
+        self.assertEqual(before, (self.db.read_bytes(), self.db.stat().st_mtime_ns))
+        self.assertEqual(json.loads(self.run_cli('summary').stdout)['totals']['sessions'], 0)
+
+    def test_preview_cli_requires_existing_initialized_database_without_creating_paths(self):
+        source = Path(self.temp.name) / 'sessions.csv'
+        source.write_text('session_id,program,session_date,duration_hours,budget,actual\ns1,Lab,2026-01-01,1,0,1\n')
+        self.db = Path(self.temp.name) / 'missing-parent' / 'ledger.db'
+        result = self.run_cli('preview-import', 'sessions', str(source))
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.db.parent.exists())
+        self.db = Path(self.temp.name) / 'uninitialized.db'
+        self.db.touch()
+        result = self.run_cli('preview-import', 'sessions', str(source))
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.db.read_bytes(), b'')
+        self.assertNotIn('Traceback', result.stderr)
+        self.run_cli('init')
+        missing = self.run_cli('preview-import', 'sessions', '/does-not-exist.csv')
+        self.assertEqual(missing.returncode, 2)
+        self.assertNotIn('Traceback', missing.stderr)
+        self.assertEqual(self.run_cli('preview-import', 'unknown', str(source)).returncode, 2)
+
     def test_missing_import_file_is_a_readable_error(self):
         result = self.run_cli('import', 'sessions', '/does-not-exist.csv')
         self.assertEqual(result.returncode, 2)

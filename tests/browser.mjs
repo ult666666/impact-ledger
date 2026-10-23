@@ -397,6 +397,98 @@ try {
     assert.deepEqual(httpErrors, [{status: 400, path: '/api/comparison'}, {status: 400, path: '/api/import'}]);
   });
 
+  await test('CSV preview exposes capped actionable errors, correction saves nothing, and import remains separate', async () => {
+    await page.setViewportSize({width: 1440, height: 1100});
+    await ready(apiUrl);
+    const metaBefore = await (await page.request.get(apiUrl + '/api/meta')).json();
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    const comparisonBefore = await page.locator('#comparison-body tr').first().textContent();
+    const header = 'session_id,program,session_date,duration_hours,budget,actual\n';
+    const file = page.getByLabel('CSV file', {exact: true});
+    await file.setInputFiles({name: 'review.csv', mimeType: 'text/csv', buffer: Buffer.from(header + Array.from({length: 102}, (_, i) => `preview-bad-${i},Lab,2026-02-30,1,1,1\n`).join(''))});
+    await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+    await page.locator('#preview-status').filter({hasText: /Invalid.*102 data rows/}).waitFor();
+    const table = page.getByRole('table', {name: 'CSV preview errors', exact: true});
+    assert.equal(await table.locator('tbody tr').count(), 100);
+    assert.deepEqual(await table.getByRole('columnheader').allTextContents(), ['CSV line', 'Column', 'Code', 'How to fix']);
+    assert.match(await table.locator('tbody tr').first().textContent(), /2session_dateinvalid_valueDate does not exist/);
+    assert.match(await page.locator('#preview-limit').textContent(), /Showing 100 of 102 errors/);
+    assert.match(await page.locator('#preview-advisory').textContent(), /optional.*reser|optional.*current/i);
+    assert.deepEqual(await (await page.request.get(apiUrl + '/api/meta')).json(), metaBefore);
+    await page.locator('#imports').screenshot({path: 'docs/screenshots/import-preview.png'});
+    await page.setViewportSize({width: 390, height: 844});
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    assert.ok(await table.isVisible());
+    assert.ok(await page.locator('#preview-errors').evaluate(el => el.scrollWidth > el.clientWidth));
+    await page.setViewportSize({width: 1440, height: 1100});
+    await file.setInputFiles({name: 'review.csv', mimeType: 'text/csv', buffer: Buffer.from(header + 'preview-reviewed,Learning Lab,2026-09-20,1.25,10.25,11.25\n')});
+    assert.ok(await page.locator('#preview-result').isHidden());
+    await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+    await page.locator('#preview-status').filter({hasText: /Valid.*1 data row/}).waitFor();
+    assert.equal(await table.locator('tbody tr').count(), 0);
+    assert.deepEqual(await (await page.request.get(apiUrl + '/api/meta')).json(), metaBefore);
+    assert.equal(await page.locator('#comparison-body tr').first().textContent(), comparisonBefore);
+    await page.getByRole('button', {name: 'Import CSV', exact: true}).click();
+    await page.locator('#import-status').filter({hasText: /1 sessions imported/}).waitFor();
+    await page.waitForFunction(() => !document.querySelector('#print-report').disabled);
+    assert.equal((await (await page.request.get(apiUrl + '/api/meta')).json()).sessions, metaBefore.sessions + 1);
+    assert.notEqual(await page.locator('#comparison-body tr').first().textContent(), comparisonBefore);
+    assert.ok(await page.locator('#preview-result').isHidden());
+  });
+
+  await test('file and kind changes discard prior and pending previews without authorizing different bytes', async () => {
+    await ready(apiUrl);
+    const file = page.getByLabel('CSV file', {exact: true});
+    const header = 'session_id,program,session_date,duration_hours,budget,actual\n';
+    await file.setInputFiles({name: 'same.csv', mimeType: 'text/csv', buffer: Buffer.from(header + 'preview-stale,Lab,2026-09-01,1,1,1\n')});
+    const gate = await responseGate(page, url => url.pathname === '/api/import/preview');
+    try {
+      await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+      assert.equal((await bounded(gate.captured)).status(), 200);
+      await file.setInputFiles({name: 'same.csv', mimeType: 'text/csv', buffer: Buffer.from('wrong,headers\n')});
+      gate.release(); await bounded(gate.delivered);
+      assert.ok(await page.locator('#preview-result').isHidden());
+      await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+      await page.locator('#preview-status').filter({hasText: /Invalid/}).waitFor();
+      assert.match(await page.locator('#preview-errors-body').textContent(), /headers/);
+      await page.getByLabel('Record type', {exact: true}).selectOption('attendance');
+      assert.ok(await page.locator('#preview-result').isHidden());
+      await file.setInputFiles({name: 'attendance.csv', mimeType: 'text/csv', buffer: Buffer.from('attendance_id,session_id,participant_id\npreview-new-a,preview-reviewed,preview-new-p\n')});
+      await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+      await page.locator('#preview-status').filter({hasText: /Valid.*1 data row/}).waitFor();
+      await page.getByLabel('Record type', {exact: true}).selectOption('sessions');
+      assert.ok(await page.locator('#preview-result').isHidden());
+    } finally {await gate.close();}
+  });
+
+  await test('optional valid preview never reserves IDs and later import reports changed ledger state atomically', async () => {
+    await ready(apiUrl);
+    const header = 'session_id,program,session_date,duration_hours,budget,actual\n';
+    const payload = header + 'preview-race-first,Lab,2026-09-01,1,1,1\npreview-race-second,Lab,2026-09-01,1,1,1\n';
+    await page.getByLabel('CSV file', {exact: true}).setInputFiles({name: 'race.csv', mimeType: 'text/csv', buffer: Buffer.from(payload)});
+    await page.getByRole('button', {name: 'Preview CSV', exact: true}).click();
+    await page.locator('#preview-status').filter({hasText: /Valid.*2 data rows/}).waitFor();
+    const imported = await page.request.post(apiUrl + '/api/import?kind=sessions', {headers: {'Content-Type': 'text/csv'}, data: header + 'preview-race-second,Lab,2026-09-01,1,1,1\n'});
+    assert.equal(imported.status(), 201);
+    await page.getByRole('button', {name: 'Import CSV', exact: true}).click();
+    await page.locator('#import-status').filter({hasText: /Row 3:.*already exists.*No rows were added/}).waitFor();
+    assert.match(await page.locator('#import-status').textContent(), /current ledger state|changed/i);
+    const snapshot = await (await page.request.get(apiUrl + '/api/snapshot')).json();
+    assert.ok(snapshot.sessions.some(row => row.session_id === 'preview-race-second'));
+    assert.ok(!snapshot.sessions.some(row => row.session_id === 'preview-race-first'));
+  });
+
+  await test('static CSV preview explicitly requires a local API and never presents database validation', async () => {
+    await ready(staticUrl);
+    assert.ok(await page.getByRole('button', {name: 'Preview CSV', exact: true}).isDisabled());
+    assert.ok(await page.getByRole('button', {name: 'Import CSV', exact: true}).isDisabled());
+    assert.match(await page.locator('#import-help').textContent(), /preview.*local API/i);
+    assert.ok(await page.locator('#preview-result').isHidden());
+    assert.deepEqual(errors, []);
+    assert.deepEqual(httpErrors.slice(-1), [{status: 400, path: '/api/import'}]);
+  });
+
 } finally {
   await browser.close();
   api.kill('SIGTERM');

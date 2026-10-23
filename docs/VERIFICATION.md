@@ -1,5 +1,33 @@
 # Verification record
 
+## v1.2.0 — read-only CSV import preview
+
+Verified locally on 23 October 2026 with macOS arm64, Python **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**. These are local results. Parent-owned independent review, hosted CI (including Python 3.11/3.13), and publication are separate steps.
+
+| Command / journey | Observed result |
+| --- | --- |
+| `python3 -W error::ResourceWarning -m unittest discover -s tests -v` | **53 passed**, including ten preview, eight CLI subprocess and 17 real HTTP tests; existing store/comparison contracts retained |
+| `npm run typecheck` | Strict TypeScript passed |
+| `npm run build` | Committed JS and deterministic static site rebuilt |
+| `npm test` | **13 Node tests passed** |
+| `npm run test:browser` | **19 Chromium tests passed**, real local API and static repository-subpath workflows |
+| `python3 -m venv .local/preview-v120-env` then `.local/preview-v120-env/bin/pip wheel --no-deps --wheel-dir .local/preview-wheel .` | Built **impact_ledger-1.2.0-py3-none-any.whl**, no runtime dependencies |
+| `.local/preview-v120-env/bin/pip install --no-deps .local/preview-wheel/impact_ledger-1.2.0-py3-none-any.whl` | Fresh environment installed the built wheel |
+| `.local/preview-v120-env/bin/python scripts/verify_package.py` | Outside-checkout console CLI 0/1/2, preview API, no-init/no-write checks, separate import, existing summary/comparison API/CLI, health, matching HTML/JS/CSS assets passed |
+| `git diff --check` | No whitespace errors |
+
+New tests were observed failing before implementation: missing `Store.preview_csv`, missing CLI command/HTTP route, and four absent-button browser journeys. One focused module now parses/validates both preview and real import. A final unavailable-database regression proved invalid kinds must be checked before opening SQLite; both preview and import now preserve that controlled ValidationError without touching missing paths. Tests cover BOM UTF-8, quoted commas/quotes, malformed quoting, physical record starting lines after quoted newlines, multiple field/row errors, exact decimal bounds/no normalization, header-only/empty/encoding/file/row limits, a 100-error cap and visible terminal file errors, duplicate IDs in file/ledger, participant/session uniqueness and missing references.
+
+The default **DELETE-journal fixture** compares complete database bytes, mtime nanoseconds and directory entries before/after preview; a trigger that rejects inserts stays unexecuted. That directory-equality evidence is scoped to this fixture. The closed-WAL library/CLI regression starts with checkpointed data and all SQLite connections closed, accepts a valid preview, and verifies unchanged main-file bytes/mtime, complete logical rows, schema version, schema definitions and existing insert-rejecting trigger. It permits SQLite-managed `-wal`/`-shm` auxiliary entries; read-only SQL does not guarantee universal filesystem nonmutation. Neither application nor regression deletes sidecars or uses immutable mode to avoid SQLite locking. CLI tests show nonexistent parent/database paths remain nonexistent and an uninitialized zero-byte file remains unchanged. A real WAL writer commits during a preview between validation SELECTs: all checks retain one original snapshot, and a later preview observes the commit. Temporarily removing `BEGIN` made that regression fail, then restoring it returned the suite to green. Query tracing observes only SELECT/BEGIN. Another Store imports a previously previewed ID; importing the original two-row file fails with a current-state row diagnostic and no partial first row.
+
+Chromium tests review a 102-row error file through an accessible table (100 displayed), correct same-name file bytes, prove valid preview changes neither metadata nor comparison, then import separately and observe refreshed totals/comparison. A real-response gate holds preview delivery while the file changes and proves stale validity never reappears. File/type changes clear results, attendance uses the same flow, an intervening real import causes atomic rejection, and static mode visibly requires the local API. The invalid-preview table scrolls within a 390px viewport. The original 15 browser cases still cover applied filters, imports, print readiness and adverse response ordering. There are no uncaught page errors; the extra expected HTTP 400 is the intentional preview-to-import ID conflict.
+
+Current screenshots are rebuilt 1.2.0 evidence: [CSV preview error table](screenshots/import-preview.png), [desktop](screenshots/desktop.png), [comparison](screenshots/comparison.png), [mobile](screenshots/mobile.png), [print media](screenshots/print-report.png). The preview region was visually inspected for table legibility and clear separate actions. This is a focused Chromium check, not a full accessibility or physical-printer audit. No provider calls, runtime dependencies, schema migration or hosted write API were added. Preview remains advisory and cannot reserve IDs or predict changes after its read snapshot.
+
+### Independent-review scope follow-up
+
+The independent review approved the implementation at `38bf780` after 143 differential CSV fixtures and focused snapshot/atomicity/CLI/asset checks. Its P3 clarification reproduced SQLite creating empty WAL and shared-memory auxiliary files when opening an otherwise closed WAL ledger. The API, architecture and verification wording now distinguish ledger rows/schema/triggers/reservations and missing-database initialization from SQLite locking/sidecar management. Runtime behavior and live WAL support are unchanged. The follow-up reran all **53 Python tests** and the installed-wheel verification, including the new closed-WAL library/CLI check. The existing 13 Node and 19 browser results above remain the prior full feature run; UI/runtime sources and assets have no changes in this follow-up.
+
 ## v1.1.0 — prior-period comparison and stakeholder print report
 
 Verified locally on 23 October 2026 with the same macOS/Python/Node/TypeScript/Chromium environment recorded below. These are local results; publication and hosted CI are separate steps.
@@ -21,7 +49,7 @@ New model, CLI, HTTP and UI tests were observed failing before implementation. T
 
 Browser coverage adds applied-filter comparison in both modes (draft form edits do not alter it), visible missing-date and year-0001-underflow messages, zero empty windows, opt-out hiding, local import refresh for both sessions and attendance, and print lifecycle restoration. Print checks run in both local and static modes, include all eight current totals and optional comparison, hide every button/input/select, and assert all visible table containers fit without horizontal clipping. The two expected HTTP 400 responses are intentional comparison underflow and invalid CSV import; no uncaught page errors or unexpected HTTP failures were observed.
 
-Screenshots are regenerated current v1.1.0 evidence: [desktop](screenshots/desktop.png), [comparison](screenshots/comparison.png), [mobile with comparison](screenshots/mobile.png), and [print media](screenshots/print-report.png). The 390 × 844 mobile view has no document overflow. Chromium also wrote a six-page A4 PDF for pagination review; rendered pages were visually inspected for table/chart legibility and clipping. This intermediate PDF is not a release artifact. Printer/browser settings can alter pagination, and this is not a full accessibility or physical-printer audit.
+The v1.1.0 run regenerated screenshot evidence (the files now show 1.2.0): [desktop](screenshots/desktop.png), [comparison](screenshots/comparison.png), [mobile with comparison](screenshots/mobile.png), and [print media](screenshots/print-report.png). The 390 × 844 mobile view has no document overflow. Chromium also wrote a six-page A4 PDF for pagination review; rendered pages were visually inspected for table/chart legibility and clipping. This intermediate PDF is not a release artifact. Printer/browser settings can alter pagination, and this is not a full accessibility or physical-printer audit.
 
 ### Review follow-up: overlapping requests and report readiness
 
@@ -33,7 +61,7 @@ Follow-up full verification: **39 Python tests**, **13 Node tests**, strict type
 
 ## Historical v1.0.0 verification
 
-The original verification narrative and counts below are retained as historical evidence for baseline commit `3813fbe8bb2e538c10770ba8c98973a6bd2c7ec8`. Current screenshot files show v1.1.0; original screenshot bytes remain in that baseline commit.
+The original verification narrative and counts below are retained as historical evidence for baseline commit `3813fbe8bb2e538c10770ba8c98973a6bd2c7ec8`. Current screenshot files show v1.2.0; original screenshot bytes remain in that baseline commit.
 
 Verified locally on **23 October 2026**, macOS arm64, Python **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, and Playwright **1.61.1** with Chromium headless shell build **1228**.
 

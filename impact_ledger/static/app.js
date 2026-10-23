@@ -19,6 +19,8 @@ let submittedFilters = {};
 let summaryState = 'pending';
 let comparisonState = 'disabled';
 let importPending = false;
+let previewPending = false;
+let previewRevision = 0;
 let requestRevision = 0;
 let comparisonRevision = 0;
 const measures = [
@@ -312,21 +314,77 @@ async function exportCSV(kind) {
         showError(error);
     }
 }
+function updateImportActions() {
+    const disabled = isStatic || importPending || previewPending;
+    element('import-button').disabled = disabled;
+    element('preview-button').disabled = disabled;
+}
+function clearPreview() {
+    ++previewRevision;
+    previewPending = false;
+    element('preview-result').hidden = true;
+    element('preview-errors-body').replaceChildren();
+    element('preview-errors').hidden = true;
+    setText('preview-status', '');
+    setText('preview-limit', '');
+    updateImportActions();
+}
+async function previewCSV() {
+    if (isStatic || importPending || previewPending)
+        return;
+    clearPreview();
+    const revision = previewRevision;
+    const status = element('preview-status');
+    status.classList.remove('error');
+    element('preview-result').hidden = false;
+    try {
+        const file = element('import-file').files?.[0];
+        if (!file)
+            throw new Error('Choose a UTF-8 CSV file first.');
+        if (file.size > 1024 * 1024)
+            throw new Error('CSV exceeds the 1 MiB limit. Choose a smaller file.');
+        const kind = element('import-kind').value;
+        previewPending = true;
+        updateImportActions();
+        status.textContent = 'Checking CSV against the current ledger. No rows will be added…';
+        const result = await json(`./api/import/preview?kind=${encodeURIComponent(kind)}`, { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: file });
+        if (revision !== previewRevision)
+            return;
+        status.classList.toggle('error', !result.valid);
+        status.textContent = `${result.valid ? 'Valid' : 'Invalid'} · ${number(result.rows)} data row${result.rows === 1 ? '' : 's'} checked. No rows were added.`;
+        setText('preview-limit', result.errors_truncated ? `Showing ${result.errors.length} of ${number(result.errors_total)} errors (100 displayed maximum). Fix these and preview again for a complete review.` : `${number(result.errors_total)} errors found (100 displayed maximum).${result.valid ? ' Choose Import CSV separately when ready.' : ' Fix the listed errors, then preview or import again.'}`);
+        for (const error of result.errors)
+            tableRow(element('preview-errors-body'), [error.row === null ? 'File' : String(error.row), error.field ?? '—', error.code, error.message]);
+        element('preview-errors').hidden = result.errors.length === 0;
+    }
+    catch (error) {
+        if (revision !== previewRevision)
+            return;
+        status.classList.add('error');
+        status.textContent = 'Preview unavailable: ' + (error instanceof Error ? error.message : 'Try the local service again.');
+    }
+    finally {
+        if (revision === previewRevision) {
+            previewPending = false;
+            updateImportActions();
+        }
+    }
+}
 async function importCSV() {
-    if (isStatic)
+    if (isStatic || importPending || previewPending)
         return;
     const fileInput = element('import-file');
     const file = fileInput.files?.[0];
     const status = element('import-status');
     status.classList.remove('error');
-    const button = element('import-button');
     try {
         if (!file)
             throw new Error('Choose a UTF-8 CSV file first.');
         if (file.size > 1024 * 1024)
             throw new Error('CSV exceeds the 1 MiB limit. No rows were added.');
-        button.disabled = true;
+        clearPreview();
         importPending = true;
+        updateImportActions();
         updateReportReadiness();
         status.textContent = 'Validating every row…';
         const kind = element('import-kind').value;
@@ -338,11 +396,11 @@ async function importCSV() {
     }
     catch (error) {
         status.classList.add('error');
-        status.textContent = error instanceof Error ? error.message : 'Import failed. No rows were added.';
+        status.textContent = 'Import revalidates the current ledger state; it may have changed since preview. ' + (error instanceof Error ? error.message : 'Import failed. No rows were added.');
     }
     finally {
-        button.disabled = false;
         importPending = false;
+        updateImportActions();
         updateReportReadiness();
     }
 }
@@ -367,6 +425,9 @@ window.addEventListener('afterprint', () => {
 });
 element('export-sessions').addEventListener('click', () => { void exportCSV('sessions'); });
 element('export-attendance').addEventListener('click', () => { void exportCSV('attendance'); });
+element('preview-button').addEventListener('click', () => { void previewCSV(); });
+element('import-file').addEventListener('change', clearPreview);
+element('import-kind').addEventListener('change', clearPreview);
 element('import-form').addEventListener('submit', event => { event.preventDefault(); void importCSV(); });
 element('download-template').addEventListener('click', () => {
     const kind = element('import-kind').value;
@@ -383,8 +444,8 @@ async function start() {
     updateReportReadiness();
     setText('mode-badge', isStatic ? 'Static preview · synthetic' : 'Local service · synthetic');
     if (isStatic) {
-        setText('import-help', 'This static preview uses a bundled synthetic snapshot. To import CSV into SQLite, run the local service using the README quickstart. Filters and CSV exports work here.');
-        element('import-button').disabled = true;
+        setText('import-help', 'This static preview uses a bundled synthetic snapshot. CSV preview against SQLite requires the local API; to preview or import CSV, run the local service using the README quickstart. Filters and CSV exports work here.');
+        updateImportActions();
         element('import-file').disabled = true;
         // The record-type selector stays available so both blank templates can be downloaded.
         snapshot = await json('./demo.json');
