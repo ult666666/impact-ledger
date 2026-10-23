@@ -1,7 +1,10 @@
 """Behavior contracts: preview must diagnose without changing or reserving data."""
 from pathlib import Path
 from contextlib import closing, contextmanager
+import json
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -23,9 +26,11 @@ class PreviewTests(unittest.TestCase):
                 operation('unknown', b'anything')
         self.assertFalse(self.store.path.parent.exists())
 
-    def test_valid_bom_quoted_csv_is_advisory_and_does_not_write(self):
-        # A preview implemented with inserts or schema initialization would change these.
+    def test_delete_journal_preview_leaves_database_and_directory_unchanged(self):
+        # This directory equality proof is scoped to the default DELETE journal fixture.
+        # WAL previews may cause SQLite itself to manage WAL/SHM auxiliary files.
         with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute('PRAGMA journal_mode').fetchone()[0], 'delete')
             connection.execute("CREATE TRIGGER forbid_preview_write BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'writes forbidden'); END")
             connection.commit()
         before = (self.path.read_bytes(), self.path.stat().st_mtime_ns, list(Path(self.temp.name).iterdir()))
@@ -33,6 +38,53 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(result, {'kind': 'sessions', 'valid': True, 'rows': 1, 'errors': [], 'errors_truncated': False, 'errors_total': 0})
         self.assertEqual(before, (self.path.read_bytes(), self.path.stat().st_mtime_ns, list(Path(self.temp.name).iterdir())))
         self.assertEqual(self.store.metadata()['sessions'], 0)
+
+    def test_closed_wal_library_and_cli_preview_preserve_main_file_schema_and_rows(self):
+        self.store.import_csv('sessions', SESSIONS.encode())
+        self.store.import_csv('attendance', ATTENDANCE.encode())
+        payload = (ATTENDANCE_HEADER + 'wal-new,s1,wal-person\n').encode()
+        source = Path(self.temp.name) / 'preview.csv'
+        source.write_bytes(payload)
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("CREATE TRIGGER forbid_wal_preview_insert BEFORE INSERT ON attendance BEGIN SELECT RAISE(ABORT, 'preview must not insert'); END")
+            connection.commit()
+
+        def logical_state(connection):
+            return {
+                'schema_version': connection.execute('PRAGMA schema_version').fetchone()[0],
+                'schema': connection.execute('SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name').fetchall(),
+                'sessions': connection.execute('SELECT * FROM sessions ORDER BY session_id').fetchall(),
+                'attendance': connection.execute('SELECT * FROM attendance ORDER BY attendance_id').fetchall(),
+            }
+
+        for operation in ['library', 'cli']:
+            with self.subTest(operation=operation):
+                # Normal SQLite connection closure checkpoints/removes its auxiliaries.
+                # No test or application code deletes sidecars to manufacture this state.
+                with closing(sqlite3.connect(self.path)) as connection:
+                    self.assertEqual(connection.execute('PRAGMA journal_mode=WAL').fetchone()[0], 'wal')
+                    before_state = logical_state(connection)
+                self.assertFalse(Path(str(self.path) + '-wal').exists())
+                self.assertFalse(Path(str(self.path) + '-shm').exists())
+                self.assertEqual((len(before_state['sessions']), len(before_state['attendance'])), (4, 4))
+                before_main = (self.path.read_bytes(), self.path.stat().st_mtime_ns)
+                before_entries = {path.name for path in Path(self.temp.name).iterdir()}
+                if operation == 'library':
+                    result = Store.open_existing(self.path).preview_csv('attendance', payload)
+                else:
+                    completed = subprocess.run([sys.executable, '-m', 'impact_ledger', '--db', str(self.path),
+                        'preview-import', 'attendance', str(source)], text=True, capture_output=True, timeout=5)
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    result = json.loads(completed.stdout)
+                self.assertEqual(result, {'kind': 'attendance', 'valid': True, 'rows': 1, 'errors': [], 'errors_truncated': False, 'errors_total': 0})
+                self.assertEqual(before_main, (self.path.read_bytes(), self.path.stat().st_mtime_ns))
+                after_entries = {path.name for path in Path(self.temp.name).iterdir()}
+                self.assertTrue(before_entries <= after_entries)
+                self.assertTrue(after_entries - before_entries <= {self.path.name + '-wal', self.path.name + '-shm'})
+                with closing(sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:
+                    connection.execute('BEGIN')
+                    self.assertEqual(logical_state(connection), before_state)
+                self.assertEqual(before_main, (self.path.read_bytes(), self.path.stat().st_mtime_ns))
 
     def test_reports_multiple_bad_fields_with_physical_csv_start_lines(self):
         payload = SESSION_HEADER + 'bad!,"Line\nBreak",2026-02-30,0,NaN,10000000.01\nlast,Lab,2026-01-01,1,1\n'

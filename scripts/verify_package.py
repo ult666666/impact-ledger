@@ -1,8 +1,10 @@
 """Run with an installed package interpreter; exercise CLI/assets outside source root."""
 import json
+from contextlib import closing
 from pathlib import Path
 import re
 import subprocess
+import sqlite3
 import sys
 import tempfile
 from urllib.request import Request, urlopen
@@ -38,6 +40,39 @@ with tempfile.TemporaryDirectory(prefix='impact-ledger-installed-') as directory
     assert invalid.returncode == 1 and json.loads(invalid.stdout)['errors'][0]['code'] == 'encoding'
     missing = subprocess.run([cli, '--db', 'missing-parent/ledger.db', 'preview-import', 'sessions', str(source)], cwd=directory, capture_output=True, text=True, timeout=10)
     assert missing.returncode == 2 and not (Path(directory) / 'missing-parent').exists()
+    # A closed WAL ledger remains valid input. Read-only SQL may cause SQLite
+    # to manage WAL/SHM files; it must not change main bytes or logical data.
+    wal_path = Path(directory) / 'wal.db'
+    subprocess.run([cli, '--db', str(wal_path), 'seed'], cwd=directory, check=True, capture_output=True, text=True, timeout=10)
+    with closing(sqlite3.connect(wal_path)) as connection:
+        connection.execute("CREATE TRIGGER forbid_wal_preview_insert BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'preview must not insert'); END")
+        connection.commit()
+
+    def wal_logical_state(connection):
+        return (connection.execute('PRAGMA schema_version').fetchone(),
+                connection.execute('SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name').fetchall(),
+                connection.execute('SELECT * FROM sessions ORDER BY session_id').fetchall(),
+                connection.execute('SELECT * FROM attendance ORDER BY attendance_id').fetchall())
+
+    for operation in ['library', 'cli']:
+        with closing(sqlite3.connect(wal_path)) as connection:
+            assert connection.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+            wal_before_state = wal_logical_state(connection)
+        assert not Path(str(wal_path) + '-wal').exists() and not Path(str(wal_path) + '-shm').exists()
+        wal_before_main = (wal_path.read_bytes(), wal_path.stat().st_mtime_ns)
+        wal_before_entries = {path.name for path in Path(directory).iterdir()}
+        command = [cli, '--db', str(wal_path), 'preview-import', 'sessions', str(source)] if operation == 'cli' else [
+            sys.executable, '-c', "import json; from pathlib import Path; from impact_ledger.store import Store; print(json.dumps(Store.open_existing('wal.db').preview_csv('sessions', Path('preview.csv').read_bytes())))"]
+        wal_preview = subprocess.run(command, cwd=directory, check=True, capture_output=True, text=True, timeout=10)
+        assert json.loads(wal_preview.stdout) == {'kind': 'sessions', 'valid': True, 'rows': 1, 'errors': [], 'errors_truncated': False, 'errors_total': 0}
+        assert wal_before_main == (wal_path.read_bytes(), wal_path.stat().st_mtime_ns)
+        wal_after_entries = {path.name for path in Path(directory).iterdir()}
+        assert wal_before_entries <= wal_after_entries
+        assert wal_after_entries - wal_before_entries <= {'wal.db-wal', 'wal.db-shm'}
+        with closing(sqlite3.connect(wal_path.resolve().as_uri() + '?mode=ro', uri=True)) as connection:
+            connection.execute('BEGIN')
+            assert wal_logical_state(connection) == wal_before_state
+        assert wal_before_main == (wal_path.read_bytes(), wal_path.stat().st_mtime_ns)
     server = subprocess.Popen([sys.executable, '-m', 'impact_ledger', '--db', 'ledger.db', 'serve', '--port', '0'], cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         line = server.stdout.readline()
@@ -74,4 +109,4 @@ with tempfile.TemporaryDirectory(prefix='impact-ledger-installed-') as directory
     finally:
         server.terminate()
         server.wait(timeout=5)
-print('Installed 1.2.0 wheel verified outside checkout: console preview CLI exits 0/1/2, no initialization or writes, preview API diagnostics, separate real import, summary/comparison CLI/API, health, exact HTML/JS and print CSS assets.')
+print('Installed 1.2.0 wheel verified outside checkout: console preview CLI exits 0/1/2, no ledger initialization or SQL writes, closed-WAL library/CLI semantics, preview API diagnostics, separate real import, summary/comparison CLI/API, health, exact HTML/JS and print CSS assets.')
