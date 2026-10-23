@@ -19,7 +19,7 @@ ASSETS = {
 
 def create_server(store, port=8765):
     class Handler(BaseHTTPRequestHandler):
-        server_version = 'ImpactLedger/1.0'
+        server_version = 'ImpactLedger/1.2'
         sys_version = ''
 
         def setup(self):

@@ -14,7 +14,7 @@ flowchart LR
   CSV[Synthetic UTF-8 CSV] --> Validation
 ```
 
-`impact_ledger/store.py` owns schema creation, input validation, transactions, filtering, aggregation, deterministic seeding, and CSV export. `server.py` translates bounded HTTP requests into store calls. `__main__.py` exposes the same behavior through the CLI. Each operation opens and closes its own SQLite connection, with foreign keys enabled. Summary and comparison reads use one SQLite read transaction so session and attendance queries share a snapshot.
+`impact_ledger/store.py` owns schema creation, transactions, filtering, aggregation, deterministic seeding, and CSV export. `csv_import.py` owns the shared CSV parser, field rules and read-only duplicate/reference checks used by both preview and import. `server.py` translates bounded HTTP requests into store calls. `__main__.py` exposes the same behavior through the CLI. Each operation opens and closes its own SQLite connection, with foreign keys enabled. Summary and comparison reads use one SQLite read transaction so session and attendance queries share a snapshot.
 
 Sessions and attendance are separate tables. Joining attendance directly to session costs and summing would multiply spending by attendance; the implementation instead selects sessions once, attaches their participant IDs, and sums session costs once. Unique participants are deduplicated inside the selected set. Sessions without attendance remain present.
 
@@ -22,10 +22,14 @@ Money is stored as integer cents, and duration as integer hundredths of an hour.
 
 ## Import transaction
 
-1. Enforce the UTF-8, 1 MiB, exact-header, and 5,000-row limits.
-2. Validate every row: ID syntax, date, label, decimal syntax and bounds.
-3. Insert all rows in a single SQLite transaction. Primary keys, person/session uniqueness, and foreign keys enforce cross-row/database integrity.
+1. Acquire `BEGIN IMMEDIATE`, then use the shared validator to enforce UTF-8, 1 MiB, exact headers, 5,000 rows, ID/date/label rules and exact decimals.
+2. Check duplicates inside the file and current ledger, participant/session pairs and session references with SELECTs in that same transaction.
+3. If any diagnostic exists, raise a readable `ValidationError` before insertion. Otherwise insert all rows. Primary keys, pair uniqueness and foreign keys remain the final constraint guard.
 4. Commit only if all inserts succeed. Otherwise roll back the complete file.
+
+`Store.preview_csv` calls the identical validator in a separate SQLite `mode=ro` connection with explicit `BEGIN`, so ID/reference queries share one snapshot and cannot write. There are no trial inserts, trigger execution, schema initialization or reservations. `Store.open_existing` bypasses the schema-creating constructor; CLI preview uses it to require an initialized database without creating missing paths. A real WAL concurrency test observes a commit between validation queries and proves preview retains the original snapshot. Real import always reparses and revalidates current bytes/state; it does not consume preview results or tokens. A stale valid preview therefore cannot authorize a conflicting import.
+
+Preview processes bounded input, displays at most 100 diagnostics and counts all errors found within at most 5,000 checked records. A terminal parsing/size/row-limit error is file-level and remains visible even if the error table is full. `rows` counts checked CSV records, while each row diagnostic identifies the physical starting line of that record, accounting for quoted newlines. All messages describe rules without echoing file values. See the [API response and codes](API.md).
 
 Imports append. They do not update or delete existing records. Sessions must be imported before referencing attendance. There is no partial-success mode. The CLI and HTTP API both call this path. Exports reuse the same inclusive session filters as summaries and produce the original import schema.
 
@@ -33,7 +37,7 @@ Imports append. They do not update or delete existing records. Sessions must be 
 
 `web/src/app.ts` uses typed API responses, native HTML forms, DOM text nodes, SVG charts, and accessible HTML tables. There is no React, UI library, CDN script, remote font, or browser runtime package. TypeScript 5.9.3 compiles into the Python package's `static/` directory. Compiled JavaScript is committed so a wheel or source install can serve the dashboard without Node.
 
-The browser holds draft form inputs, the latest submitted filter intent, and the last completed applied view separately. Downloads, comparisons, and print reports correspond to the applied view. Comparison has its own request revision, clears during filter refresh or a failed update, and explains missing dates. Successful imports reload the latest submitted filters, including an Apply request still in flight; their automatic refresh cannot replace a newer submitted intent with the older completed view. Draft edits remain unapplied. A request revision prevents a slower prior filter response from replacing a newer view. Import errors are presented without clearing the file or claiming rows were saved. An imported file refreshes metadata; existing date filters still apply until reset.
+The browser holds draft form inputs, the latest submitted filter intent, and the last completed applied view separately. Downloads, comparisons, and print reports correspond to the applied view. Comparison has its own request revision, clears during filter refresh or a failed update, and explains missing dates. Successful imports reload the latest submitted filters, including an Apply request still in flight; their automatic refresh cannot replace a newer submitted intent with the older completed view. Draft edits remain unapplied. A request revision prevents a slower prior filter response from replacing a newer view. Import errors are presented without clearing the file or claiming rows were saved. An imported file refreshes metadata; existing date filters still apply until reset. Optional CSV previews have a separate request revision: file/kind changes clear diagnostics and invalidate delayed responses. Import clears preview and submits the file again through the normal atomic import endpoint. Preview never changes filter, summary, comparison or print state.
 
 Charts are accompanied by exact-value tables. Empty selections display zero activity and undefined ratios. The mobile session table has its own scroll container so the document itself does not overflow. Labels are rendered with `textContent`/text nodes; CSV text is never assigned to `innerHTML`.
 
@@ -41,7 +45,7 @@ Charts are accompanied by exact-value tables. Empty selections display zero acti
 
 `scripts/build_site.py` copies the same compiled browser assets into `site/`, changes a `data-mode` attribute, and generates a deterministic `demo.json` snapshot from an empty seeded SQLite database. In this mode, `model.ts` performs the same integer accounting in the browser. Unit fixtures check hand-derived metrics, dates, CSV quoting, and IDs for both calculation paths. Browser tests check real interactions in both modes.
 
-Static preview filters and exports run locally in the viewer's browser. Imports are visibly disabled; no API or SQLite writes are hosted. Assets use relative paths so the bundle can be mounted under `/impact-ledger/`. `site/` is ignored reproducible output. The Pages workflow builds it anew; it requires the repository owner to enable GitHub Actions as the Pages source.
+Static preview filters and exports run locally in the viewer's browser. Both CSV preview and import are visibly disabled with a local-API explanation; no database validation is simulated and no API or SQLite writes are hosted. Assets use relative paths so the bundle can be mounted under `/impact-ledger/`. `site/` is ignored reproducible output. The Pages workflow builds it anew; it requires the repository owner to enable GitHub Actions as the Pages source.
 
 ## HTTP contract
 
@@ -56,11 +60,12 @@ All successful JSON responses include `synthetic: true` where applicable; curren
 | GET | `/api/snapshot?start=&end=&program=` | Synthetic session rows, integer units, participant/attendance IDs |
 | GET | `/api/export?kind=sessions\|attendance&start=&end=&program=` | Filtered attachment in import CSV schema |
 | POST | `/api/import?kind=sessions\|attendance` | Append UTF-8 `text/csv`; successful response is 201 with kind/imported count |
+| POST | `/api/import/preview?kind=sessions\|attendance` | Read-only advisory diagnostics; valid and invalid CSV return 200, with bounded errors |
 | GET | `/`, `/app.js`, `/model.js`, `/styles.css`, `/favicon.svg` | Explicit static asset allowlist |
 
 Summary/snapshot/export dates are optional and inclusive. Omitted/blank filters are unbounded. Program matching is exact and case-sensitive. `kind` is required for import/export. No pagination is implemented; summaries/snapshots return every selected session, so large databases are outside the intended scope.
 
-Application error statuses: 400 for validation/framing errors, 403 for invalid Host/cross-origin writes, 404 for unknown routes, 405 for unsupported methods on known API routes, 408 for an incomplete timed-out body, 411 for missing length, 413 for oversized length, 415 for unsupported CSV encoding/media type, and 503 for unavailable SQLite or missing built assets. Failed imports add no rows.
+Application error statuses: 400 for validation/framing errors, 403 for invalid Host/cross-origin writes, 404 for unknown routes, 405 for unsupported methods on known API routes, 408 for an incomplete timed-out body, 411 for missing length, 413 for oversized length, 415 for unsupported CSV encoding/media type, and 503 for unavailable SQLite or missing built assets. Failed imports add no rows. Preview content diagnostics use 200 with `valid: false`; invalid kind or HTTP framing still uses the existing 4xx contract. See [API.md](API.md).
 
 ## Comparison and print contract
 
@@ -85,7 +90,7 @@ Print CSS adds a stakeholder title, synthetic notice, explicit applied filters (
 
 ## Local security and deployment limits
 
-The server binds to `127.0.0.1` and checks exact `localhost:port`/`127.0.0.1:port` Host values. It rejects duplicate Hosts, cross-site import requests, unsupported transfer encoding, invalid/oversized lengths, malformed UTF-8, and other CSV failures. Request reads time out after five seconds. Responses use a restrictive CSP, `nosniff`, `no-store`, and no CORS headers. SQL values are parameterized. See [SECURITY.md](../SECURITY.md).
+The server binds to `127.0.0.1` and checks exact `localhost:port`/`127.0.0.1:port` Host values. Both CSV routes reject duplicate Hosts, cross-site requests, unsupported transfer encoding, invalid/oversized lengths and unsupported media types/charsets. CSV validation errors, including malformed UTF-8, return bounded diagnostics in preview and prevent writes in import. Request reads time out after five seconds. Responses use a restrictive CSP, `nosniff`, `no-store`, and no CORS headers. SQL values are parameterized. See [SECURITY.md](../SECURITY.md).
 
 These controls do not make a production service. Thread count, database growth, and request rate are not bounded; there is no authentication or TLS. Do not expose the Python service on a public host or through a reverse proxy. The static preview is the intended public deployment.
 

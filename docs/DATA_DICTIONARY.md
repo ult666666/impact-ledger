@@ -35,6 +35,14 @@ Files use UTF-8 (an initial BOM is accepted), comma separators, and exact ordere
 
 Exports are UTF-8 CSV with CRLF line endings, the original ordered headers, and two-place hours/USD values. Session exports sort by date then ID; attendance exports sort by attendance ID. Both select attendance through the same session filters. Allowed program labels cannot begin with spreadsheet formula markers.
 
+## Advisory CSV preview
+
+Preview and real import share the same parser, field bounds and ledger constraints. Preview never trims values, rounds decimals, writes schema/records or reserves IDs. The response is `{kind, valid, rows, errors, errors_truncated, errors_total}`; the maximum displayed errors is 100. `rows` counts checked data records, capped at 5,000. `errors_total` counts validation errors found before parsing/size/row limits stop checking; a malformed record itself is not counted as a checked row. It is not a count of bad rows: one record can have multiple field errors.
+
+Each error includes `row` (physical CSV record starting line, first data line 2), `field` (supported column or null), `code` and a rule-based human message. File/header/limit failures have null row/field. Multiline quoted fields use their starting line even when the next record begins several lines later; a newline inside a program label remains invalid. If the display cap is reached, a terminal file-level error replaces the last displayed row error so the reason checking stopped remains visible. [API codes](API.md#preview-error-codes) are stable; message text may become clearer in later releases.
+
+A valid result describes the database snapshot at preview time. Import remains an explicit separate action and revalidates current state under its write transaction. IDs or references can change between the two requests, so a later import may still reject the whole file.
+
 ## Metrics
 
 Every measure uses the selected session set after inclusive dates and exact program filters.

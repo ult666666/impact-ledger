@@ -6,7 +6,7 @@ A local-first operations dashboard for understanding nonprofit participation and
 
 **All records are synthetic.** This is an educational engineering project, with no real organization, participant information, or production-use claim. Participation and spending describe activity; they do not establish outcomes or causal impact.
 
-[Read-only synthetic preview](https://ult666666.github.io/impact-ledger/) · [中文指南](docs/README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Data dictionary](docs/DATA_DICTIONARY.md) · [Verification](docs/VERIFICATION.md)
+[Read-only synthetic preview](https://ult666666.github.io/impact-ledger/) · [中文指南](docs/README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Data dictionary](docs/DATA_DICTIONARY.md) · [API](docs/API.md) · [Release notes](CHANGELOG.md) · [Verification](docs/VERIFICATION.md)
 
 ![Impact Ledger dashboard with synthetic data](docs/screenshots/desktop.png)
 
@@ -40,6 +40,7 @@ python3 -m venv .local/venv
 - Choose **Print report** for a synthetic stakeholder report with applied filters, all current totals, charts, tables, and comparison when enabled. Browser print settings can save a PDF. The button explains and blocks unfinished views/import refreshes or enabled comparisons still loading; a completed unavailable comparison prints its reason.
 - Compare actual and budget in USD. Percent variance uses budget as denominator and is undefined at zero budget.
 - Open the exact accessible tables under both charts; use a keyboard to navigate the session table on small screens.
+- Optionally choose **Preview CSV** before import to review row/column errors against the current local ledger. Preview adds no rows or reservations; file/type changes clear it. [Preview example](docs/screenshots/import-preview.png).
 - Import UTF-8 CSV atomically. Files with bad headers, invalid dates/amounts, duplicate IDs, missing session references, or excess size/rows add **nothing**.
 - Export both session and attendance CSVs for the **applied** filters. Edits in the form take effect when you choose Apply filters. Import completion reloads the latest submitted filters, including a request still loading, without applying draft edits.
 - Try an empty date range: the interface reports zero activity rather than substituting demo totals.
@@ -51,12 +52,16 @@ Comparison requires both explicit dates. Set them and choose Apply filters if a 
 Import sessions before attendance. A session can have zero attendance; its spending is still included. Each file is append-only. Existing IDs and duplicate participant/session pairs are rejected.
 
 ```sh
+python3 -m impact_ledger --db .local/example.db init
+python3 -m impact_ledger --db .local/example.db preview-import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import attendance examples/attendance.csv
 python3 -m impact_ledger --db .local/example.db summary --program '社区服务'
 python3 -m impact_ledger --db .local/demo.db comparison --start 2026-09-01 --end 2026-09-30 --program 'Learning Lab'
 python3 -m impact_ledger --db .local/example.db export sessions --start 2026-10-01 --end 2026-10-31 --output .local/sessions.csv
 ```
+
+`preview-import KIND FILE` requires an existing initialized ledger and prints JSON: exit **0** for valid, **1** for CSV validation problems, **2** for usage, file I/O, or database failure. It never creates missing database paths or initializes an existing empty database. Preview is advisory: another import can change IDs or references afterwards. Import always revalidates against current state and atomically rejects conflicts. Both paths use the same parser and exact field rules; at most 100 errors are displayed.
 
 CSV headers must match exactly and in this order:
 
@@ -88,7 +93,7 @@ On Linux, use `npx playwright install --with-deps chromium` to install browser s
 
 ## Static preview
 
-`npm run build` also creates `site/`: the same interface, a deterministic synthetic snapshot, functional filters, and client-side CSV export. Imports are disabled with an explanation because a static host cannot run SQLite. Preview it with:
+`npm run build` also creates `site/`: the same interface, a deterministic synthetic snapshot, functional filters, and client-side CSV export. CSV validation preview and import are disabled with an explanation because checking ledger IDs/references requires the local API and SQLite. Preview it with:
 
 ```sh
 python3 -m http.server 8000 --bind 127.0.0.1 --directory site
