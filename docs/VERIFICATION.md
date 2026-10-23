@@ -1,5 +1,29 @@
 # Verification record
 
+## v1.2.1 — exact static payload and single workflow
+
+Verified locally on 23 October 2026 with macOS arm64, Python **3.13** and **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**, and actionlint **1.7.7**. These are local results. Independent whole-diff review, hosted Python3.11/3.13 CI, PR/non-main deploy-skip checks, main deployment and public visitor byte checks remain parent-owned shipping steps; this record does not claim hosted success for this patch.
+
+| Command / journey | Observed result |
+| --- | --- |
+| `python3 -W error::ResourceWarning -m unittest discover -s tests -v` | **70 passed**: existing 53 plus 17 real static-builder/verifier subprocess checks; no resource warnings |
+| `python3.13 -W error::ResourceWarning -m unittest discover -s tests -v` | **70 passed** on the second local interpreter |
+| `npm ci --ignore-scripts` | Pinned tooling cleanly installed; no runtime dependencies added |
+| `npm run typecheck` / `npm run build` | Strict TypeScript and exact static build passed; committed browser assets unchanged |
+| `npm test` / `npm run test:browser` | **13 model tests** and **19 real Chromium journeys passed**, including local/static repository-subpath flows and existing preview/comparison/print contracts |
+| `python3 scripts/build_site.py --verify-only` after browser checks | Seven actual files matched expected bytes; bounded JSON byte/SHA-256 receipt; no rebuild after browser tests |
+| Fresh Python3.13 environment, `pip wheel --no-deps`, install **impact_ledger-1.2.1-py3-none-any.whl**, then installed interpreter `scripts/verify_package.py` | Outside-checkout console CLI/API/WAL/real import and exact packaged assets passed; actual selected builder/verifier output matched all installed assets and installed seeded snapshot bytes |
+| `actionlint` 1.7.7 / `git diff --check` | Workflow syntax/expression validation and whitespace checks passed |
+| Base comparison for business/API/frontend/fixtures | No changes to store, shared CSV validator, HTTP/CLI runtime, TypeScript, compiled HTML/JS/CSS/icon, examples or calculation oracles |
+
+The first two tests were observed failing against the old builder at `507ce2e`: it exited 0 with an unlisted synthetic marker retained, and exited 0 after writing through a selected directory symlink into a separate temporary directory. The initial sixteen-test suite was run red before production changes (six failures and thirteen errors across failing subtests, including absent JSON/verification/output-selection interfaces). The new boundary implementation returned it to green. A seventeenth test additionally injects a partial staging write error. All repro data and unselected originals were synthetic and temporary; no actual private file or public deployment was touched.
+
+Tests run the actual builder with current real compiled assets and unchanged Store seed in Unicode/spaced temporary source roots. They cover exact seven-file receipts, the hand-recorded **32,929-byte** demo SHA-256 `3c8b6623aaef31146f4e196263fe3611f87336e72144506a882a011792069938`, repeat rebuild and repair of missing/modified regular generated files, unknown file/folder refusal, selected/dangling/known-file symlinks, directory/FIFO entries, source/output aliases, trusted ancestor canonicalization, hardlink detachment without changing the unselected original, and missing parent behavior. Verification checks every payload file, including syntactically valid altered demo JSON, compiled JS/CSS/icon/HTML bytes and nonempty .nojekyll. Success/failure comparisons preserve selected bytes, inode identities, mtimes and entries; target reads can update access times. Subprocess-local I/O injection proves controlled read diagnostics without private exception values, cleanup after a partial staging write, and cleanup after a failed second replacement. Expected data still uses the real Store in a separate temporary SQLite database.
+
+One workflow now runs both Python versions and one frontend path on explicit `ubuntu-24.04`, a supported label in the [official runner catalog](https://github.com/actions/runner-images). Browser tests exercise the directory that the final read-only verifier checks before upload. Only non-PR main uploads the Pages artifact; the guarded same-workflow deploy needs both test jobs and owns Pages/id-token write permissions. PR/non-main manual runs retain tests and skip upload/deploy. Concurrency includes the ref; screenshot artifacts have seven-day retention; all jobs retain finite 15-minute timeouts and pinned actions with checkout credentials disabled. The duplicate pages.yml is retired in this change, without changing repository settings or existing runs. GitHub documents the [same-workflow artifact/deployment dependency and environment requirements](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
+The selected target is read-only during verification; creating expected synthetic data elsewhere is permitted. Builds use private staging and individual atomic replacements, not a directory transaction. An ordinary replacement failure can leave mixed generated versions, so build and verify again before publication. No adversarial concurrent-path or power-loss containment, audit, alternate browser engine, Windows run, production write API or elapsed-time completion claim is made. Historical 1.0/1.1/1.2 records below retain their original scope.
+
 ## v1.2.0 — read-only CSV import preview
 
 Verified locally on 23 October 2026 with macOS arm64, Python **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**. These are local results. Parent-owned independent review, hosted CI (including Python 3.11/3.13), and publication are separate steps.
