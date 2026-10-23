@@ -26,14 +26,25 @@ class PayloadError(Exception):
 
 
 def preflight(selected, *, verify):
-    """Check the selected entry before canonicalizing trusted ancestor aliases."""
+    """Resolve existing ancestors, then lstat the selected entry without following it."""
+    try:
+        parent = selected.parent.resolve(strict=True)
+    except FileNotFoundError:
+        if verify:
+            raise PayloadError('missing_output') from None
+        raise
+    if not stat.S_ISDIR(parent.stat().st_mode):
+        raise NotADirectoryError
+    # A missing ancestor must not be erased by non-strict resolution of a
+    # spelling such as missing/../selected-link or output/missing/.. .
+    selected = parent / selected.name
     try:
         info = selected.lstat()
     except FileNotFoundError:
         info = None
     if info is not None and stat.S_ISLNK(info.st_mode):
         raise PayloadError('selected_symlink')
-    target = selected.resolve()
+    target = selected if info is None else selected.resolve(strict=True)
     source = SOURCE.resolve()
     if target == source or source in target.parents or target in source.parents:
         raise PayloadError('source_overlap')
