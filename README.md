@@ -87,6 +87,7 @@ npm run build
 npm test
 npx playwright install chromium
 npm run test:browser
+python3 scripts/build_site.py --verify-only
 ```
 
 On Linux, use `npx playwright install --with-deps chromium` to install browser system libraries. Tests use temporary local databases and launch real loopback HTTP services. Browser checks exercise both local and static modes and save desktop/mobile screenshots under `docs/screenshots/`.
@@ -99,7 +100,18 @@ On Linux, use `npx playwright install --with-deps chromium` to install browser s
 python3 -m http.server 8000 --bind 127.0.0.1 --directory site
 ```
 
-Open **http://127.0.0.1:8000**. Relative asset URLs work under a GitHub Pages repository path. The [Static preview workflow](.github/workflows/pages.yml) uploads this generated directory. Repository Pages must be configured to use GitHub Actions before deployment succeeds. It never deploys the Python write API.
+Open **http://127.0.0.1:8000**. Relative asset URLs work under a GitHub Pages repository path. You can also build from committed assets without Node and select a separate output directory whose parent already exists:
+
+```sh
+python3 scripts/build_site.py --output-directory '/tmp/impact preview'
+python3 scripts/build_site.py --output-directory '/tmp/impact preview' --verify-only
+```
+
+The payload is exactly seven regular files: `index.html`, `app.js`, `model.js`, `styles.css`, `favicon.svg`, `demo.json`, and empty `.nojekyll`. The builder refuses a selected output symlink, source/output overlap, unknown entries, and symlink or nonregular generated entries **before writing anything to the target**. A known output can be rebuilt: missing or changed regular generated files are replaced, while an unknown file/folder must be moved by its owner first. There is no recursive cleanup or force option. Every intermediate path component must exist, including components traversed before `..`; only the final output directory may be missing. Trusted existing ancestor directory aliases are canonicalized; the selected destination itself cannot be a symlink.
+
+`--verify-only` compares actual output with source assets, the static-mode HTML shell, and unchanged deterministic seed bytes. It returns a bounded JSON receipt with seven byte counts/SHA-256 digests on success; failures contain stable codes and only known payload filenames. Exit codes are **0** exact, **1** boundary/content/I/O failure, **2** argument usage error. It never repairs the selected output or creates missing output paths. Generating expected synthetic data uses a separate private temporary SQLite database; “read-only” applies to the selected target. Reads may update filesystem access times. Builds stage private files and atomically replace each generated name so existing hard links cannot overwrite an unselected file; the whole directory is not an atomic transaction. Ordinary failures clean owned temporaries. Concurrent path manipulation and power-loss recovery are outside this local build contract.
+
+The single [CI and Pages workflow](.github/workflows/ci.yml) runs the Python matrix and one frontend build/model/Chromium path. After browser checks it verifies the same `site/` bytes, then uploads only on non-PR `main`. Deployment needs both test jobs and consumes that run's tested artifact. PRs and non-main manual runs get all tests and skip publication. Only the gated deploy job has Pages/token write permissions; concurrency is scoped by ref. Screenshot artifacts expire after seven days. Repository Pages must already use GitHub Actions. No Python write API, databases, import CSVs, dependencies, wheels, or local reports are in the payload.
 
 ## Scope and tradeoffs
 
