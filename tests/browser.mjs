@@ -53,6 +53,35 @@ async function download(button) {
   return readFile(await result.path(), 'utf8');
 }
 
+// Gates delay delivery of real server responses; payloads still come from the API/static server.
+async function responseGate(target, matches) {
+  const captured = Promise.withResolvers();
+  const released = Promise.withResolvers();
+  const delivered = Promise.withResolvers();
+  captured.promise.catch(() => {});
+  delivered.promise.catch(() => {});
+  let held = false;
+  const handler = async route => {
+    if (held || !matches(new URL(route.request().url()))) {await route.continue(); return;}
+    held = true;
+    try {
+      const response = await route.fetch();
+      captured.resolve(response);
+      await released.promise;
+      await route.fulfill({response});
+      delivered.resolve();
+    } catch (error) {captured.reject(error); delivered.reject(error);}
+  };
+  await target.route('**/*', handler);
+  return {captured: captured.promise, delivered: delivered.promise, release: () => released.resolve(),
+    close: async () => {released.resolve(); if (held) await bounded(delivered.promise); await target.unroute('**/*', handler);}};
+}
+async function bounded(promise) {
+  let timer;
+  try {return await Promise.race([promise, new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Response gate was not reached.')), 5000);})]);}
+  finally {clearTimeout(timer);}
+}
+
 try {
   await test('local dashboard renders synthetic accounting and accessible chart tables', async () => {
     await ready(apiUrl);
@@ -242,6 +271,132 @@ try {
     assert.deepEqual(errors, []);
     assert.deepEqual(httpErrors, [{status: 400, path: '/api/comparison'}, {status: 400, path: '/api/import'}]);
   });
+  await test('import refresh preserves a newer submitted filter while its original summary response is held', async () => {
+    await ready(apiUrl);
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    const start = await page.getByLabel('Start date', {exact: true}).inputValue();
+    const end = await page.getByLabel('End date', {exact: true}).inputValue();
+    const importGate = await responseGate(page, url => url.pathname === '/api/import');
+    let summaryGate;
+    try {
+      await page.getByLabel('CSV file', {exact: true}).setInputFiles({name: 'intent.csv', mimeType: 'text/csv', buffer: Buffer.from('session_id,program,session_date,duration_hours,budget,actual\nrace-intent,Learning Lab,2026-09-15,1,1,1\n')});
+      await page.getByRole('button', {name: 'Import CSV', exact: true}).click();
+      assert.equal((await bounded(importGate.captured)).status(), 201);
+      summaryGate = await responseGate(page, url => url.pathname === '/api/summary' && url.searchParams.get('program') === 'Learning Lab');
+      await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      assert.equal((await bounded(summaryGate.captured)).status(), 200);
+      // A later draft remains unapplied even when metadata refreshes.
+      await page.getByLabel('Program', {exact: true}).selectOption('Digital Access');
+      importGate.release();
+      await bounded(importGate.delivered);
+      await page.waitForFunction(() => !document.querySelector('#import-button').disabled);
+      summaryGate.release();
+      await bounded(summaryGate.delivered);
+      await page.locator('#report-filters').filter({hasText: /Learning Lab/}).waitFor({state: 'attached'});
+      await page.locator('#comparison-panel').waitFor({state: 'visible'});
+      const query = new URLSearchParams({start, end, program: 'Learning Lab'});
+      const expected = await (await page.request.get(apiUrl + '/api/summary?' + query)).json();
+      assert.equal(await page.locator('#sessions-body tr').count(), expected.totals.sessions);
+      assert.equal(await page.locator('#comparison-body tr').first().locator('td').nth(1).innerText(), String(expected.totals.sessions));
+      assert.equal(await page.getByLabel('Program', {exact: true}).inputValue(), 'Digital Access');
+      const csv = await download('Export sessions CSV');
+      const expectedCSV = await (await page.request.get(apiUrl + '/api/export?kind=sessions&' + query)).text();
+      assert.equal(csv, expectedCSV);
+    } finally {importGate.release(); summaryGate?.release(); await importGate.close(); if (summaryGate) await summaryGate.close();}
+  });
+
+  await test('print action waits for an enabled comparison response before invoking the browser', async () => {
+    await ready(apiUrl);
+    await page.evaluate(() => {window.__prints = []; window.print = () => window.__prints.push({enabled: document.querySelector('#compare-prior').checked, hidden: document.querySelector('#comparison-panel').hidden, rows: document.querySelectorAll('#comparison-body tr').length, status: document.querySelector('#comparison-status').textContent});});
+    const gate = await responseGate(page, url => url.pathname === '/api/comparison');
+    try {
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+      assert.equal((await bounded(gate.captured)).status(), 200);
+      const print = page.getByRole('button', {name: 'Print report', exact: true});
+      assert.ok(await print.isDisabled());
+      await print.dispatchEvent('click');
+      assert.deepEqual(await page.evaluate(() => window.__prints), []);
+      await page.locator('#report-status').filter({hasText: /comparison.*loads/i}).waitFor();
+      gate.release(); await bounded(gate.delivered);
+      await page.waitForFunction(() => !document.querySelector('#print-report').disabled);
+      await print.click();
+      const prints = await page.evaluate(() => window.__prints);
+      assert.equal(prints.length, 1);
+      assert.deepEqual({enabled: prints[0].enabled, hidden: prints[0].hidden, rows: prints[0].rows}, {enabled: true, hidden: false, rows: 8});
+      assert.match(prints[0].status, /reflects the applied/);
+    } finally {await gate.close();}
+  });
+
+  await test('printing stays blocked through a submitted filter refresh and its requested comparison', async () => {
+    await ready(apiUrl);
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    await page.evaluate(() => {window.__prints = []; window.print = () => window.__prints.push({filters: document.querySelector('#report-filters').textContent, rows: document.querySelectorAll('#comparison-body tr').length});});
+    const gate = await responseGate(page, url => url.pathname === '/api/summary');
+    try {
+      await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      assert.equal((await bounded(gate.captured)).status(), 200);
+      const print = page.getByRole('button', {name: 'Print report', exact: true});
+      assert.ok(await print.isDisabled());
+      await print.dispatchEvent('click');
+      assert.deepEqual(await page.evaluate(() => window.__prints), []);
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).uncheck();
+      assert.ok(await print.isDisabled());
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+      assert.ok(await print.isDisabled());
+      gate.release(); await bounded(gate.delivered);
+      await page.waitForFunction(() => !document.querySelector('#print-report').disabled);
+      await print.click();
+      const prints = await page.evaluate(() => window.__prints);
+      assert.equal(prints.length, 1);
+      assert.equal(prints[0].rows, 8);
+      assert.match(prints[0].filters, /Learning Lab/);
+    } finally {await gate.close();}
+  });
+
+  await test('initial report loading blocks printing in both local and static modes', async () => {
+    for (const url of [apiUrl, staticUrl]) {
+      const gate = await responseGate(page, target => url === apiUrl ? target.pathname === '/api/summary' : target.pathname.endsWith('/demo.json'));
+      try {
+        await page.goto(url);
+        assert.equal((await bounded(gate.captured)).status(), 200);
+        await page.evaluate(() => {window.__prints = 0; window.print = () => {window.__prints++;};});
+        const print = page.getByRole('button', {name: 'Print report', exact: true});
+        assert.ok(await print.isDisabled());
+        await print.dispatchEvent('click');
+        assert.equal(await page.evaluate(() => window.__prints), 0);
+        gate.release(); await bounded(gate.delivered);
+        await page.locator('#app-status').filter({hasText: /Showing/}).waitFor();
+        await page.waitForFunction(() => !document.querySelector('#print-report').disabled);
+        await print.click();
+        assert.equal(await page.evaluate(() => window.__prints), 1);
+      } finally {await gate.close();}
+    }
+  });
+
+  await test('printing an unavailable comparison includes an explicit reason in both modes', async () => {
+    for (const url of [apiUrl, staticUrl]) {
+      await ready(url);
+      await page.getByLabel('Start date', {exact: true}).fill('');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      await page.locator('#report-filters').filter({hasText: /Unbounded start/}).waitFor({state: 'attached'});
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+      await page.locator('#comparison-status').filter({hasText: /Comparison unavailable:.*both start and end dates/}).waitFor();
+      await page.evaluate(() => {window.__printedStatus = ''; window.print = () => {window.__printedStatus = document.querySelector('#comparison-status').textContent;};});
+      await page.getByRole('button', {name: 'Print report', exact: true}).click();
+      assert.match(await page.evaluate(() => window.__printedStatus), /Comparison unavailable:.*both start and end dates/);
+      await page.emulateMedia({media: 'print'});
+      assert.ok(await page.locator('#comparison-status').isVisible());
+      assert.ok(await page.locator('#comparison-panel').isHidden());
+      await page.emulateMedia({media: 'screen'});
+    }
+    assert.deepEqual(errors, []);
+    assert.deepEqual(httpErrors, [{status: 400, path: '/api/comparison'}, {status: 400, path: '/api/import'}]);
+  });
+
 } finally {
   await browser.close();
   api.kill('SIGTERM');

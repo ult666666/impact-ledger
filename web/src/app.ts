@@ -16,6 +16,10 @@ const colors = ['#718b59', '#365e4c', '#b5bf88', '#879d7a', '#768f95'];
 let snapshot: Snapshot | null = null;
 let metadata: Metadata | null = null;
 let appliedFilters: Filters = {};
+let submittedFilters: Filters = {};
+let summaryState: 'pending' | 'ready' | 'error' = 'pending';
+let comparisonState: 'disabled' | 'pending' | 'ready' | 'unavailable' = 'disabled';
+let importPending = false;
 let requestRevision = 0;
 let comparisonRevision = 0;
 const measures: {key: ComparisonMeasure; label: string; currency?: boolean}[] = [
@@ -27,16 +31,32 @@ const measures: {key: ComparisonMeasure; label: string; currency?: boolean}[] = 
 function measureValue(value: number, currency = false, signed = false): string {
   return `${signed && value > 0 ? '+' : value < 0 ? '−' : ''}${currency ? money(Math.abs(value)) : number(Math.abs(value))}`;
 }
+function updateReportReadiness(): void {
+  let reason = '';
+  if (summaryState === 'pending') reason = 'Print report is unavailable while the current view loads.';
+  else if (summaryState === 'error') reason = 'Print report is unavailable because the current view could not load. Apply filters again.';
+  else if (importPending) reason = 'Print report is unavailable while imported data refreshes.';
+  else if (element<HTMLInputElement>('compare-prior').checked && comparisonState === 'pending') reason = 'Print report is unavailable while the prior-period comparison loads.';
+  element<HTMLButtonElement>('print-report').disabled = reason !== '';
+  setText('report-status', reason);
+  element('report-status').hidden = reason === '';
+}
 function clearComparison(message: string): void {
   ++comparisonRevision;
   element('comparison-panel').hidden = true;
   element('comparison-body').replaceChildren();
   setText('comparison-status', message);
+  comparisonState = element<HTMLInputElement>('compare-prior').checked ? 'pending' : 'disabled';
+  updateReportReadiness();
 }
 async function refreshComparison(): Promise<void> {
   const enabled = element<HTMLInputElement>('compare-prior').checked;
   clearComparison(enabled ? 'Updating comparison for the applied filters…' : 'Compare the immediately preceding equal-duration period using applied filters.');
   if (!enabled) return;
+  if (summaryState !== 'ready') {
+    setText('comparison-status', 'Comparison waits for the submitted view to finish loading.');
+    return;
+  }
   const revision = comparisonRevision;
   const filters = {...appliedFilters};
   try {
@@ -47,11 +67,13 @@ async function refreshComparison(): Promise<void> {
     const body = element('comparison-body');
     for (const measure of measures) tableRow(body, [measure.label, measureValue(result.current.totals[measure.key], measure.currency), measureValue(result.previous.totals[measure.key], measure.currency), measureValue(result.deltas[measure.key], measure.currency, true)]);
     element('comparison-panel').hidden = false;
+    comparisonState = 'ready';
     setText('comparison-status', 'Comparison reflects the applied dates and program. Delta = current − previous.');
   } catch (error) {
     if (revision !== comparisonRevision) return;
-    setText('comparison-status', error instanceof Error ? error.message : 'Comparison is unavailable. Apply your filters again.');
-  }
+    comparisonState = 'unavailable';
+    setText('comparison-status', 'Comparison unavailable: ' + (error instanceof Error ? error.message : 'Apply your filters again.'));
+  } finally {if (revision === comparisonRevision) updateReportReadiness();}
 }
 function renderReportTotals(totals: Totals): void {
   const body = element('report-totals-body');
@@ -204,8 +226,11 @@ function render(summary: Summary): void {
 
 async function refresh(filtersToApply?: Filters): Promise<void> {
   const revision = ++requestRevision;
+  summaryState = 'pending';
+  updateReportReadiness();
   try {
-    const filters = filtersToApply ?? readFilters();
+    const filters = {...(filtersToApply ?? readFilters())};
+    submittedFilters = filters;
     element('app-error').hidden = true;
     setText('app-status', 'Updating this view…');
     clearComparison('Comparison cleared while the view updates.');
@@ -213,9 +238,11 @@ async function refresh(filtersToApply?: Filters): Promise<void> {
     if (revision !== requestRevision) return;
     appliedFilters = filters;
     render(summary);
+    summaryState = 'ready';
     await refreshComparison();
   } catch (error) {
     if (revision !== requestRevision) return;
+    summaryState = 'error';
     clearComparison('Comparison cleared because the view could not be updated. Apply valid filters to compare again.');
     setText('app-status', 'The view could not be updated. Check your filters or local service.');
     showError(error);
@@ -274,23 +301,28 @@ async function importCSV(): Promise<void> {
     if (!file) throw new Error('Choose a UTF-8 CSV file first.');
     if (file.size > 1024 * 1024) throw new Error('CSV exceeds the 1 MiB limit. No rows were added.');
     button.disabled = true;
+    importPending = true;
+    updateReportReadiness();
     status.textContent = 'Validating every row…';
     const kind = element<HTMLSelectElement>('import-kind').value;
     const result = await json<{imported: number}>(`./api/import?kind=${encodeURIComponent(kind)}`, {method: 'POST', headers: {'Content-Type': 'text/csv; charset=utf-8'}, body: file});
     status.textContent = `${result.imported} ${kind} imported. Current filters still apply; reset filters to view all dates.`;
     fileInput.value = '';
     await loadMetadata();
-    await refresh({...appliedFilters});
+    await refresh({...submittedFilters});
   } catch (error) {
     status.classList.add('error');
     status.textContent = error instanceof Error ? error.message : 'Import failed. No rows were added.';
-  } finally {button.disabled = false;}
+  } finally {button.disabled = false; importPending = false; updateReportReadiness();}
 }
 
 element<HTMLFormElement>('filters').addEventListener('submit', event => {event.preventDefault(); void refresh();});
 element('reset-filters').addEventListener('click', resetFilters);
 element('compare-prior').addEventListener('change', () => {void refreshComparison();});
-element('print-report').addEventListener('click', () => window.print());
+element('print-report').addEventListener('click', () => {
+  updateReportReadiness();
+  if (!element<HTMLButtonElement>('print-report').disabled) window.print();
+});
 let printDisclosures: HTMLDetailsElement[] = [];
 window.addEventListener('beforeprint', () => {
   printDisclosures.push(...document.querySelectorAll<HTMLDetailsElement>('.chart-details:not([open])'));
@@ -316,6 +348,7 @@ for (const link of document.querySelectorAll<HTMLAnchorElement>('.nav-link')) {
 }
 
 async function start(): Promise<void> {
+  updateReportReadiness();
   setText('mode-badge', isStatic ? 'Static preview · synthetic' : 'Local service · synthetic');
   if (isStatic) {
     setText('import-help', 'This static preview uses a bundled synthetic snapshot. To import CSV into SQLite, run the local service using the README quickstart. Filters and CSV exports work here.');
@@ -327,4 +360,4 @@ async function start(): Promise<void> {
   await loadMetadata();
   resetFilters();
 }
-void start().catch(error => {showError(error); setText('app-status', 'Unable to load the workspace. Start the local service or rebuild the static preview.');});
+void start().catch(error => {summaryState = 'error'; updateReportReadiness(); showError(error); setText('app-status', 'Unable to load the workspace. Start the local service or rebuild the static preview.');});

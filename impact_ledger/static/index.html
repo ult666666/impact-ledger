@@ -36,7 +36,8 @@
         </form>
         <div class="view-status"><p id="app-status" role="status" aria-live="polite">Loading your synthetic workspace…</p><span id="filter-count"></span></div>
         <div id="app-error" class="message error-message" role="alert" hidden></div>
-        <div class="report-actions"><label class="compare-control"><input type="checkbox" id="compare-prior" aria-describedby="comparison-status">Compare prior period</label><button id="print-report" class="button button-light" type="button">Print report</button></div>
+        <div class="report-actions"><label class="compare-control"><input type="checkbox" id="compare-prior" aria-describedby="comparison-status">Compare prior period</label><button id="print-report" class="button button-light" type="button" aria-describedby="report-status" disabled>Print report</button></div>
+        <p id="report-status" class="comparison-status" role="status" aria-live="polite">Print report is unavailable while the current view loads.</p>
         <p id="comparison-status" class="comparison-status" role="status" aria-live="polite">Compare the immediately preceding equal-duration period using applied filters.</p>
         <p id="report-filters" class="print-only"></p>
         <section class="print-only report-totals" aria-labelledby="report-totals-title"><h2 id="report-totals-title">Current period totals</h2><table aria-label="Current period totals"><thead><tr><th scope="col">Measure</th><th scope="col">Total</th></tr></thead><tbody id="report-totals-body"></tbody></table></section>

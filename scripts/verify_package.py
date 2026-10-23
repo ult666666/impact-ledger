@@ -32,11 +32,16 @@ with tempfile.TemporaryDirectory(prefix='package-check-', dir=ROOT / '.local') a
         for route, fragment in [('/', b'Good work.'), ('/app.js', b'function render'), ('/model.js', b'summaryFromSnapshot')]:
             with urlopen(base + route, timeout=5) as response:
                 assert response.status == 200
-                assert fragment in response.read()
+                body = response.read()
+                assert fragment in body
+                name = 'index.html' if route == '/' else route.lstrip('/')
+                assert body == (ROOT / 'impact_ledger' / 'static' / name).read_bytes()
         with urlopen(base + '/api/comparison?start=2026-09-01&end=2026-09-30&program=Learning%20Lab', timeout=5) as response:
             assert json.load(response) == comparison_result
         with urlopen(base + '/styles.css', timeout=5) as response:
-            assert b'@media print' in response.read()
+            body = response.read()
+            assert b'@media print' in body
+            assert body == (ROOT / 'impact_ledger' / 'static' / 'styles.css').read_bytes()
         with urlopen(base + '/api/health', timeout=5) as response:
             assert json.load(response) == {'status': 'ok', 'synthetic': True}
     finally:
