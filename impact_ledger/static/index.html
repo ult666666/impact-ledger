@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-mode="local">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore a fictional nonprofit's participation, sessions, and spending in a local-first operations dashboard.">
+  <title>Impact Ledger · Community operations, clearly</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to dashboard</a>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="#overview" aria-label="Impact Ledger home"><span class="brand-mark" aria-hidden="true">i<span>l</span></span><span>impact<span class="brand-second">ledger</span></span></a>
+    <div class="workspace-label">THE COMMUNITY WORKSPACE</div>
+    <nav class="navigation" aria-label="Dashboard sections">
+      <a href="#overview" class="nav-link active"><span aria-hidden="true">▦</span> Overview <span class="nav-dot" aria-hidden="true"></span></a>
+      <a href="#ledger" class="nav-link"><span aria-hidden="true">▤</span> Session ledger</a>
+      <a href="#imports" class="nav-link"><span aria-hidden="true">⇧</span> Import data</a>
+      <a href="#definitions" class="nav-link"><span aria-hidden="true">ⓘ</span> Metric guide</a>
+    </nav>
+    <div class="sidebar-note"><span class="small-caps">BUILT FOR CLARITY</span><p>Behind every number,<br>there’s community work.</p><div class="note-line"></div><span>See participation.<br>Ask better questions.</span></div>
+    <div class="synthetic-notice"><span class="notice-dot" aria-hidden="true"></span><div><strong>Synthetic demo data</strong><p>Fictional people &amp; programs.<br>No real organization records.</p></div></div>
+    <div class="sidebar-footer">Local-first. Thoughtfully measured.<span>Impact Ledger / 01</span></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div><span class="topbar-workspace">Community workspace</span><span class="breadcrumb-separator">/</span><span>Overview</span></div><span class="mode-badge" id="mode-badge">Connecting…</span></header>
+    <main id="main" tabindex="-1">
+      <section id="overview" class="overview" aria-labelledby="page-heading">
+        <div class="hero"><div><p class="eyebrow"><span aria-hidden="true"></span> THE BIG PICTURE</p><h1 id="page-heading">Good work. <em>Clearer data.</em></h1><p class="hero-copy">A shared view of who you reach, what you deliver,<br class="desktop-break"> and where your resources go.</p></div><div class="hero-date"><span class="small-caps">REPORTING WINDOW</span><strong id="reporting-window">Your selected dates</strong><span>All amounts in USD</span></div></div>
+        <form id="filters" class="filter-panel" aria-label="Dashboard filters">
+          <div class="filter-heading"><span class="filter-icon" aria-hidden="true">≡</span><span>Focus your view</span></div>
+          <div class="filter-fields"><label>Start date<input id="start-date" name="start" type="date" aria-label="Start date"></label><label>End date<input id="end-date" name="end" type="date" aria-label="End date"></label><label class="program-field">Program<select id="program-filter" name="program" aria-label="Program"><option value="">All programs</option></select></label><button class="button button-dark" type="submit">Apply filters <span aria-hidden="true">↗</span></button><button class="reset-button" type="button" id="reset-filters">Reset filters</button></div>
+        </form>
+        <div class="view-status"><p id="app-status" role="status" aria-live="polite">Loading your synthetic workspace…</p><span id="filter-count"></span></div>
+        <div id="app-error" class="message error-message" role="alert" hidden></div>
+        <div class="metric-grid" aria-label="Key metrics">
+          <article class="metric-card"><div class="metric-label">Unique participants <span class="metric-symbol" aria-hidden="true">♧</span></div><strong class="metric-value" id="metric-unique">—</strong><p>Distinct people in selected sessions</p><div class="metric-footer"><span class="tiny-dot" aria-hidden="true"></span><span id="metric-repeat">— attendances per participant</span></div></article>
+          <article class="metric-card"><div class="metric-label">Attendance <span class="metric-symbol" aria-hidden="true">↗</span></div><strong class="metric-value" id="metric-attendance">—</strong><p>One person attending one session</p><div class="metric-footer"><span class="tiny-dot" aria-hidden="true"></span><span id="metric-sessions">— sessions delivered</span></div></article>
+          <article class="metric-card"><div class="metric-label">Participant hours <span class="metric-symbol" aria-hidden="true">◷</span></div><strong class="metric-value" id="metric-hours">—</strong><p>Session hours × people attending</p><div class="metric-footer"><span class="tiny-dot" aria-hidden="true"></span><span id="metric-session-hours">— session hours</span></div></article>
+          <article class="metric-card spending-card"><div class="metric-label">Actual spending <span class="metric-symbol" aria-hidden="true">＄</span></div><strong class="metric-value" id="metric-actual">—</strong><p id="metric-budget">Against — planned budget</p><div class="metric-footer"><span class="variance-pill" id="metric-variance">—</span></div></article>
+        </div>
+        <div id="empty-state" class="empty-state" hidden><span aria-hidden="true">◌</span><h2>No sessions in this view</h2><p>Try a different date range or reset your filters. Zero records means zero reported activity.</p></div>
+        <div class="chart-grid" id="chart-grid">
+          <article class="panel attendance-panel"><div class="panel-header"><div><p class="eyebrow">PARTICIPATION OVER TIME</p><h2>A rhythm of showing up</h2></div><span class="chart-legend"><span class="tiny-dot" aria-hidden="true"></span> Attendances</span></div><p class="panel-description">Repeat visits count each time. People are counted once in the headline.</p><div id="attendance-chart" class="attendance-chart" role="img" aria-label="Monthly attendance bar chart; exact values available in the following table."></div><details class="chart-details"><summary>View attendance data</summary><div class="table-scroll"><table aria-label="Monthly attendance data"><thead><tr><th scope="col">Month</th><th scope="col">Attendance</th><th scope="col">Participants</th><th scope="col">Participant hours</th></tr></thead><tbody id="monthly-body"></tbody></table></div></details></article>
+          <article class="panel program-panel"><div class="panel-header"><div><p class="eyebrow">REACH BY PROGRAM</p><h2>Different paths. Shared purpose.</h2></div></div><p class="panel-description">Share of attendances in this view.</p><div id="program-chart" class="program-chart"></div><div class="program-total"><span>Total attendance</span><strong id="program-total">—</strong></div><details class="chart-details"><summary>View program data</summary><div class="table-scroll"><table aria-label="Program participation data"><thead><tr><th scope="col">Program</th><th scope="col">Attendance</th><th scope="col">Participants</th><th scope="col">Budget</th><th scope="col">Actual</th></tr></thead><tbody id="program-body"></tbody></table></div></details></article>
+        </div>
+        <div class="interpretation-note"><span class="info-symbol" aria-hidden="true">i</span><p><strong>Participation tells part of the story.</strong> These measures describe activities and reach. They don’t establish outcomes, program effectiveness, or causal impact.</p></div>
+      </section>
+      <section class="panel ledger-panel" id="ledger" aria-labelledby="ledger-heading"><div class="panel-header ledger-header"><div><p class="eyebrow">FROM TOTALS TO DETAILS</p><h2 id="ledger-heading">The session ledger</h2><p class="panel-description">Every session, including those with no attendance. Spending is counted once per session.</p></div><div class="export-actions"><button class="button button-light" id="export-sessions" type="button">Export sessions CSV</button><button class="button button-light" id="export-attendance" type="button">Export attendance CSV</button></div></div><div class="table-scroll ledger-scroll" tabindex="0" aria-label="Scrollable session ledger"><table aria-label="Session ledger"><thead><tr><th scope="col">Date</th><th scope="col">Program / session</th><th scope="col">Attendance</th><th scope="col">Hours / person</th><th scope="col">Budget</th><th scope="col">Actual</th><th scope="col">Variance</th></tr></thead><tbody id="sessions-body"></tbody></table></div><div class="table-footer"><span id="ledger-count">— sessions</span><span>Variance = actual − budget · Positive means over budget</span></div></section>
+      <section class="import-section" id="imports" aria-labelledby="import-heading"><div class="import-intro"><p class="eyebrow">A CAREFUL HANDOFF</p><h2 id="import-heading">Small files.<br>Reliable records.</h2><p>Append synthetic session or attendance records with a validated CSV. Every row must pass before any row is saved.</p><span class="import-limit">UTF-8 · up to 1 MiB · 5,000 rows per file</span></div><div class="panel import-panel"><p class="small-caps">IMPORT SYNTHETIC DATA</p><p id="import-help">Import sessions first, then attendance referencing those session IDs. Use fictional records only. Duplicate IDs are rejected.</p><form id="import-form"><label>Record type<select id="import-kind" aria-label="Record type"><option value="sessions">Sessions</option><option value="attendance">Attendance</option></select></label><label>CSV file<input id="import-file" type="file" accept=".csv,text/csv" aria-label="CSV file" required></label><div class="import-actions"><button type="submit" class="button button-dark" id="import-button">Import CSV <span aria-hidden="true">↗</span></button><button type="button" class="reset-button" id="download-template">Download template</button></div></form><p id="import-status" role="status" aria-live="polite"></p><details class="schema-details"><summary>CSV column guide</summary><p><strong>Sessions</strong><br><code>session_id,program,session_date,duration_hours,budget,actual</code></p><p><strong>Attendance</strong><br><code>attendance_id,session_id,participant_id</code></p><p>Dates: YYYY-MM-DD. Hours: 0.01–24 per session. Budget and actual: USD, nonnegative, at most two decimal places. IDs: ASCII letters, digits, dot, underscore or hyphen.</p></details></div></section>
+      <section id="definitions" class="definitions" aria-labelledby="definitions-heading"><div><p class="eyebrow">MEASURE WITH INTENTION</p><h2 id="definitions-heading">A few useful definitions.</h2></div><dl><div><dt>Reach</dt><dd>Unique participant IDs across selected sessions. Program totals can overlap and should not be added.</dd></div><div><dt>Participant hours</dt><dd>Each session’s duration multiplied by its attendance count. Assumes each person attends the full session.</dd></div><div><dt>Budget variance</dt><dd>Actual minus planned session spending. Percentage divides by the selected budget; no percentage is reported when budget is zero.</dd></div><div><dt>What’s outside the ledger</dt><dd>Eligibility, unmet need, attendance rate, outcomes, and causal impact. This demo has no eligible-population or outcome data.</dd></div></dl></section>
+      <footer class="main-footer"><a class="footer-brand" href="#overview">impact ledger<span aria-hidden="true">↗</span></a><p>An open-source engineering demo. All records are synthetic.</p><a href="#definitions">Read the metric guide ↑</a></footer>
+    </main>
+  </div>
+  <noscript><p class="noscript">This dashboard needs JavaScript. Its local CLI can also summarize and export CSV without a browser.</p></noscript>
+</body>
+</html>

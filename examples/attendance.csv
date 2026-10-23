@@ -1,0 +1,4 @@
+attendance_id,session_id,participant_id
+example-a01,example-s01,fictional-p01
+example-a02,example-s01,fictional-p02
+example-a03,example-s02,fictional-p01

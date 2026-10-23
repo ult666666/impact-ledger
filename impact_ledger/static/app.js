@@ -1,0 +1,285 @@
+import { csvFromSnapshot, metadataFromSnapshot, summaryFromSnapshot } from './model.js';
+function element(id) {
+    const found = document.getElementById(id);
+    if (!found)
+        throw new Error(`Missing interface element: ${id}`);
+    return found;
+}
+const setText = (id, value) => { element(id).textContent = value; };
+const number = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value);
+const dateLabel = (value) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + 'T00:00:00Z'));
+const monthLabel = (value) => new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + '-01T00:00:00Z'));
+const isStatic = document.documentElement.dataset.mode === 'static';
+const colors = ['#718b59', '#365e4c', '#b5bf88', '#879d7a', '#768f95'];
+let snapshot = null;
+let metadata = null;
+let appliedFilters = {};
+let requestRevision = 0;
+async function json(url, options) {
+    const response = await fetch(url, options);
+    const result = await response.json();
+    if (!response.ok)
+        throw new Error(result.error ?? `Request failed (${response.status}).`);
+    return result;
+}
+function query(filters) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters))
+        if (value)
+            params.set(key, value);
+    return params.toString();
+}
+function readFilters() {
+    const start = element('start-date').value;
+    const end = element('end-date').value;
+    if (start && end && start > end)
+        throw new Error('Start date must be on or before end date.');
+    return { start: start || null, end: end || null, program: element('program-filter').value || null };
+}
+function showError(error) {
+    setText('app-error', error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+    element('app-error').hidden = false;
+}
+function tableRow(body, values) {
+    const row = document.createElement('tr');
+    for (const value of values) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
+    }
+    body.append(row);
+    return row;
+}
+function svgNode(name, attrs, text) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const [key, value] of Object.entries(attrs))
+        node.setAttribute(key, String(value));
+    if (text !== undefined)
+        node.textContent = text;
+    return node;
+}
+function renderAttendance(summary) {
+    const container = element('attendance-chart');
+    container.replaceChildren();
+    const rows = summary.monthly;
+    const width = 500, height = 200, left = 28, top = 20, bottom = 27, chartHeight = height - top - bottom;
+    const max = Math.max(1, ...rows.map(row => row.attendance));
+    const ceiling = Math.max(4, Math.ceil(max / 4) * 4);
+    const svg = svgNode('svg', { viewBox: `0 0 ${width} ${height}`, 'aria-hidden': 'true' });
+    for (let tick = 0; tick <= 4; tick++) {
+        const value = ceiling * tick / 4;
+        const y = height - bottom - chartHeight * tick / 4;
+        svg.append(svgNode('line', { x1: left, y1: y, x2: width - 5, y2: y, class: 'chart-gridline' }));
+        svg.append(svgNode('text', { x: left - 9, y: y + 3, 'text-anchor': 'end', class: 'chart-label' }, String(value)));
+    }
+    const step = (width - left - 6) / Math.max(1, rows.length);
+    rows.forEach((row, index) => {
+        const barWidth = Math.min(68, step * 0.45);
+        const barHeight = row.attendance / ceiling * chartHeight;
+        const x = left + step * (index + 0.5);
+        svg.append(svgNode('rect', { x: x - barWidth / 2, y: height - bottom - barHeight, width: barWidth, height: barHeight, rx: 3, class: index === rows.length - 1 ? 'chart-bar-highlight' : 'chart-bar' }));
+        svg.append(svgNode('text', { x, y: height - bottom - barHeight - 8, 'text-anchor': 'middle', class: 'chart-value' }, number(row.attendance)));
+        // Long time ranges remain legible by labeling up to six evenly spaced ticks.
+        if (rows.length <= 6 || index % Math.ceil(rows.length / 6) === 0 || index === rows.length - 1) {
+            svg.append(svgNode('text', { x, y: height - 5, 'text-anchor': 'middle', class: 'chart-label' }, monthLabel(row.month)));
+        }
+    });
+    container.append(svg);
+    const body = element('monthly-body');
+    body.replaceChildren();
+    for (const row of rows)
+        tableRow(body, [monthLabel(row.month), number(row.attendance), number(row.unique_participants), number(row.participant_hours)]);
+}
+function renderPrograms(summary) {
+    const container = element('program-chart');
+    const body = element('program-body');
+    container.replaceChildren();
+    body.replaceChildren();
+    summary.programs.forEach((row, index) => {
+        const share = summary.totals.attendance ? row.attendance / summary.totals.attendance * 100 : 0;
+        const item = document.createElement('div');
+        item.className = 'program-item';
+        const line = document.createElement('div');
+        line.className = 'program-row';
+        const label = document.createElement('div');
+        const name = document.createElement('span');
+        name.className = 'program-label';
+        name.textContent = row.program;
+        label.append(name);
+        const value = document.createElement('strong');
+        value.textContent = number(row.attendance);
+        const percentage = document.createElement('span');
+        percentage.className = 'program-share';
+        percentage.textContent = `${number(share)}%`;
+        value.append(percentage);
+        line.append(label, value);
+        const track = svgNode('svg', { viewBox: '0 0 300 6', preserveAspectRatio: 'none', class: 'program-track', 'aria-hidden': 'true' });
+        track.append(svgNode('rect', { x: 0, y: 0, width: 300, height: 6, rx: 3, fill: '#f0f3e8' }));
+        track.append(svgNode('rect', { x: 0, y: 0, width: share * 3, height: 6, rx: 3, fill: colors[index % colors.length] ?? colors[0] ?? '#718b59' }));
+        item.append(line, track);
+        container.append(item);
+        tableRow(body, [row.program, number(row.attendance), number(row.unique_participants), money(row.budget), money(row.actual)]);
+    });
+    setText('program-total', number(summary.totals.attendance));
+}
+function render(summary) {
+    const totals = summary.totals;
+    setText('metric-unique', number(totals.unique_participants));
+    setText('metric-attendance', number(totals.attendance));
+    setText('metric-hours', number(totals.participant_hours));
+    setText('metric-actual', money(totals.actual));
+    setText('metric-repeat', totals.attendance_per_participant === null ? 'No participant denominator' : `${number(totals.attendance_per_participant)} attendances per participant`);
+    setText('metric-sessions', `${number(totals.sessions)} sessions delivered`);
+    setText('metric-session-hours', `${number(totals.session_hours)} session hours delivered`);
+    setText('metric-budget', `Against ${money(totals.budget)} planned budget`);
+    const variance = element('metric-variance');
+    variance.classList.toggle('over', totals.variance > 0);
+    const amount = totals.variance === 0 ? 'On budget' : `${money(Math.abs(totals.variance))} ${totals.variance > 0 ? 'over' : 'under'} budget`;
+    variance.textContent = `${amount} · ${totals.variance_percent === null ? 'no % (zero budget)' : number(Math.abs(totals.variance_percent)) + '%'}`;
+    const start = summary.filters.start ?? metadata?.start;
+    const end = summary.filters.end ?? metadata?.end;
+    setText('reporting-window', start && end ? `${dateLabel(start)} – ${dateLabel(end)}` : 'All recorded dates');
+    setText('filter-count', `${number(summary.programs.length)} programs · ${number(totals.sessions)} sessions`);
+    setText('app-status', `Showing ${number(totals.sessions)} synthetic sessions${summary.filters.program ? ' · ' + summary.filters.program : ' across all programs'}.`);
+    setText('ledger-count', `${number(totals.sessions)} sessions in this view`);
+    element('empty-state').hidden = totals.sessions !== 0;
+    element('chart-grid').hidden = totals.sessions === 0;
+    renderAttendance(summary);
+    renderPrograms(summary);
+    const body = element('sessions-body');
+    body.replaceChildren();
+    for (const session of summary.sessions) {
+        const row = tableRow(body, [dateLabel(session.session_date), session.program, number(session.attendance), number(session.duration_hours), money(session.budget), money(session.actual), `${session.variance > 0 ? '+' : session.variance < 0 ? '−' : ''}${money(Math.abs(session.variance))}`]);
+        const program = row.cells[1];
+        if (program) {
+            const id = document.createElement('span');
+            id.textContent = session.session_id;
+            program.append(id);
+        }
+        row.cells[6]?.classList.add(session.variance > 0 ? 'variance-positive' : 'variance-negative');
+    }
+}
+async function refresh() {
+    const revision = ++requestRevision;
+    try {
+        const filters = readFilters();
+        element('app-error').hidden = true;
+        setText('app-status', 'Updating this view…');
+        const summary = isStatic && snapshot ? summaryFromSnapshot(snapshot, filters) : await json('./api/summary?' + query(filters));
+        if (revision !== requestRevision)
+            return;
+        appliedFilters = filters;
+        render(summary);
+    }
+    catch (error) {
+        if (revision !== requestRevision)
+            return;
+        setText('app-status', 'The view could not be updated. Check your filters or local service.');
+        showError(error);
+    }
+}
+async function loadMetadata() {
+    metadata = isStatic && snapshot ? metadataFromSnapshot(snapshot) : await json('./api/meta');
+    const select = element('program-filter');
+    const selected = select.value;
+    select.replaceChildren(new Option('All programs', ''));
+    for (const program of metadata.programs)
+        select.add(new Option(program, program));
+    select.value = metadata.programs.includes(selected) ? selected : '';
+}
+function resetFilters() {
+    element('start-date').value = metadata?.start ?? '';
+    element('end-date').value = metadata?.end ?? '';
+    element('program-filter').value = '';
+    void refresh();
+}
+function downloadBlob(content, filename) {
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(content);
+    link.href = url;
+    link.download = filename;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function exportCSV(kind) {
+    try {
+        let blob;
+        if (isStatic && snapshot)
+            blob = new Blob([csvFromSnapshot(kind, snapshot, appliedFilters)], { type: 'text/csv;charset=utf-8' });
+        else {
+            const response = await fetch(`./api/export?kind=${kind}&${query(appliedFilters)}`);
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error);
+            }
+            blob = await response.blob();
+        }
+        downloadBlob(blob, `impact-ledger-${kind}.csv`);
+    }
+    catch (error) {
+        showError(error);
+    }
+}
+async function importCSV() {
+    if (isStatic)
+        return;
+    const fileInput = element('import-file');
+    const file = fileInput.files?.[0];
+    const status = element('import-status');
+    status.classList.remove('error');
+    const button = element('import-button');
+    try {
+        if (!file)
+            throw new Error('Choose a UTF-8 CSV file first.');
+        if (file.size > 1024 * 1024)
+            throw new Error('CSV exceeds the 1 MiB limit. No rows were added.');
+        button.disabled = true;
+        status.textContent = 'Validating every row…';
+        const kind = element('import-kind').value;
+        const result = await json(`./api/import?kind=${encodeURIComponent(kind)}`, { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: file });
+        status.textContent = `${result.imported} ${kind} imported. Current filters still apply; reset filters to view all dates.`;
+        fileInput.value = '';
+        await loadMetadata();
+        await refresh();
+    }
+    catch (error) {
+        status.classList.add('error');
+        status.textContent = error instanceof Error ? error.message : 'Import failed. No rows were added.';
+    }
+    finally {
+        button.disabled = false;
+    }
+}
+element('filters').addEventListener('submit', event => { event.preventDefault(); void refresh(); });
+element('reset-filters').addEventListener('click', resetFilters);
+element('export-sessions').addEventListener('click', () => { void exportCSV('sessions'); });
+element('export-attendance').addEventListener('click', () => { void exportCSV('attendance'); });
+element('import-form').addEventListener('submit', event => { event.preventDefault(); void importCSV(); });
+element('download-template').addEventListener('click', () => {
+    const kind = element('import-kind').value;
+    const header = kind === 'sessions' ? 'session_id,program,session_date,duration_hours,budget,actual\r\n' : 'attendance_id,session_id,participant_id\r\n';
+    downloadBlob(new Blob([header], { type: 'text/csv;charset=utf-8' }), `impact-ledger-${kind}-template.csv`);
+});
+for (const link of document.querySelectorAll('.nav-link')) {
+    link.addEventListener('click', () => {
+        document.querySelector('.nav-link.active')?.classList.remove('active');
+        link.classList.add('active');
+    });
+}
+async function start() {
+    setText('mode-badge', isStatic ? 'Static preview · synthetic' : 'Local service · synthetic');
+    if (isStatic) {
+        setText('import-help', 'This static preview uses a bundled synthetic snapshot. To import CSV into SQLite, run the local service using the README quickstart. Filters and CSV exports work here.');
+        element('import-button').disabled = true;
+        element('import-file').disabled = true;
+        // The record-type selector stays available so both blank templates can be downloaded.
+        snapshot = await json('./demo.json');
+    }
+    await loadMetadata();
+    resetFilters();
+}
+void start().catch(error => { showError(error); setText('app-status', 'Unable to load the workspace. Start the local service or rebuild the static preview.'); });

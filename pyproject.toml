@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "impact-ledger"
+version = "1.0.0"
+description = "A local-first synthetic nonprofit operations dashboard with exact accounting and atomic CSV imports"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = ["sqlite", "nonprofit", "dashboard", "synthetic-data", "csv"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Office/Business",
+]
+
+[project.scripts]
+impact-ledger = "impact_ledger.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/ult666666/impact-ledger"
+
+[tool.setuptools.packages.find]
+include = ["impact_ledger*"]
+
+[tool.setuptools.package-data]
+impact_ledger = ["static/*.html", "static/*.css", "static/*.js", "static/*.svg"]
