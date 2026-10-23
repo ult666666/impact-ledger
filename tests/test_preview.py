@@ -1,6 +1,6 @@
 """Behavior contracts: preview must diagnose without changing or reserving data."""
 from pathlib import Path
-from contextlib import closing
+from contextlib import closing, contextmanager
 import sqlite3
 import tempfile
 import unittest
@@ -90,6 +90,32 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual([(e['row'], e['field'], e['code']) for e in result['errors']], [
             (2, 'attendance_id', 'duplicate_id'), (2, 'participant_id', 'duplicate_pair'),
             (3, 'session_id', 'missing_session'), (5, 'attendance_id', 'duplicate_id'), (5, 'participant_id', 'duplicate_pair')])
+
+    def test_database_checks_keep_one_snapshot_while_another_connection_commits(self):
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute('PRAGMA journal_mode=WAL')
+        self.store.import_csv('sessions', (SESSION_HEADER + 's1,Lab,2026-01-01,1,1,1\n').encode())
+        writer = Store(self.path)
+        statements = []
+
+        class ObservedStore(Store):
+            @contextmanager
+            def _read_connection(inner):
+                with super()._read_connection() as connection:
+                    def observe(sql):
+                        statements.append(sql)
+                        if sql.startswith('SELECT 1 FROM attendance WHERE attendance_id') and len([q for q in statements if q.startswith('SELECT 1 FROM attendance WHERE attendance_id')]) == 2:
+                            writer.import_csv('sessions', (SESSION_HEADER + 'late,Lab,2026-01-01,1,1,1\n').encode())
+                    connection.set_trace_callback(observe)
+                    yield connection
+
+        result = ObservedStore.open_existing(self.path).preview_csv('attendance',
+            (ATTENDANCE_HEADER + 'a1,s1,p1\na2,late,p2\n').encode())
+        self.assertEqual([(e['row'], e['code']) for e in result['errors']], [(3, 'missing_session')])
+        self.assertEqual(writer.metadata()['sessions'], 2)
+        self.assertTrue(all(q.startswith(('SELECT', 'BEGIN')) for q in statements))
+        # The next preview sees the commit, without reusing a prior result.
+        self.assertTrue(self.store.preview_csv('attendance', (ATTENDANCE_HEADER + 'a2,late,p2\n').encode())['valid'])
 
     def test_preview_never_reserves_ids_and_import_revalidates_current_state_atomically(self):
         payload = (SESSION_HEADER + 'first,Lab,2026-01-01,1,1,1\nsecond,Lab,2026-01-01,1,1,1\n').encode()

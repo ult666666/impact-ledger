@@ -100,12 +100,14 @@ def create_server(store, port=8765):
                         params = self.query({'kind', 'start', 'end', 'program'})
                         kind = params.pop('kind', None)
                         self.respond(200, store.export_csv(kind, **params), 'text/csv; charset=utf-8', {'Content-Disposition': f'attachment; filename="impact-ledger-{kind}.csv"'})
-                    elif path == '/api/import':
+                    elif path in ('/api/import', '/api/import/preview'):
                         self.error(405, 'Use POST for CSV imports.')
                     else:
                         self.error(404, 'Route not found.')
-                elif self.command == 'POST' and path == '/api/import':
-                    self.import_request()
+                elif self.command == 'POST' and path in ('/api/import', '/api/import/preview'):
+                    self.import_request(preview=path.endswith('/preview'))
+                elif path in ('/api/import', '/api/import/preview'):
+                    self.error(405, 'Use POST for CSV imports and previews.')
                 elif path in {'/api/health', '/api/meta', '/api/summary', '/api/snapshot', '/api/comparison', '/api/export'}:
                     self.error(405, 'Method not allowed for this route.')
                 else:
@@ -117,7 +119,7 @@ def create_server(store, port=8765):
             except sqlite3.Error:
                 self.error(503, 'Local database is unavailable or busy. Try again.')
 
-        def import_request(self):
+        def import_request(self, preview=False):
             params = self.query({'kind'})
             origin = self.headers.get('Origin')
             if self.headers.get('Sec-Fetch-Site') == 'cross-site' or (origin is not None and origin != 'http://' + self.headers.get('Host', '')):
@@ -144,7 +146,10 @@ def create_server(store, port=8765):
             if len(payload) != length:
                 self.error(400, 'Incomplete request body.')
                 return
-            self.respond(201, store.import_csv(params.get('kind'), payload))
+            if preview:
+                self.respond(200, store.preview_csv(params.get('kind'), payload))
+            else:
+                self.respond(201, store.import_csv(params.get('kind'), payload))
 
         do_GET = dispatch
         do_POST = dispatch

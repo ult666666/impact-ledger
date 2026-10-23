@@ -66,6 +66,16 @@ class Store:
                 CREATE INDEX IF NOT EXISTS attendance_session ON attendance(session_id);
             ''')
 
+    @classmethod
+    def open_existing(cls, path):
+        """Open an initialized ledger without creating paths or running schema DDL."""
+        store = cls.__new__(cls)
+        store.path = Path(path)
+        with store._read_connection() as connection:
+            connection.execute('SELECT session_id,program,session_date,duration_hundredths,budget_cents,actual_cents FROM sessions LIMIT 0')
+            connection.execute('SELECT attendance_id,session_id,participant_id FROM attendance LIMIT 0')
+        return store
+
     @contextmanager
     def _connection(self):
         connection = sqlite3.connect(self.path, timeout=5)

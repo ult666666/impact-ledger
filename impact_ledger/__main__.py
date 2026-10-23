@@ -17,9 +17,10 @@ def main(argv=None):
     commands.add_parser('seed', help='Seed an empty ledger with deterministic fictional records')
     serve = commands.add_parser('serve', help='Serve the dashboard on 127.0.0.1 only')
     serve.add_argument('--port', type=int, default=8765)
-    load = commands.add_parser('import', help='Atomically append a validated UTF-8 CSV')
-    load.add_argument('kind', choices=['sessions', 'attendance'])
-    load.add_argument('file', type=Path)
+    for command in ['import', 'preview-import']:
+        load = commands.add_parser(command, help='Atomically append CSV' if command == 'import' else 'Read-only CSV diagnostics against an existing initialized ledger')
+        load.add_argument('kind', choices=['sessions', 'attendance'])
+        load.add_argument('file', type=Path)
     for command in ['summary', 'comparison', 'export']:
         subparser = commands.add_parser(command)
         if command == 'export':
@@ -30,14 +31,15 @@ def main(argv=None):
         subparser.add_argument('--program')
     args = parser.parse_args(argv)
     try:
-        store = Store(args.db)
+        store = Store.open_existing(args.db) if args.command == 'preview-import' else Store(args.db)
         if args.command == 'init':
             result = store.metadata()
         elif args.command == 'seed':
             result = store.seed_demo()
-        elif args.command == 'import':
+        elif args.command in ['import', 'preview-import']:
             with args.file.open('rb') as source:
-                result = store.import_csv(args.kind, source.read(MAX_BYTES + 1))
+                payload = source.read(MAX_BYTES + 1)
+            result = store.preview_csv(args.kind, payload) if args.command == 'preview-import' else store.import_csv(args.kind, payload)
         elif args.command in ['summary', 'comparison', 'export']:
             filters = {key: getattr(args, key) for key in ['start', 'end', 'program']}
             if args.command == 'export':
@@ -61,7 +63,7 @@ def main(argv=None):
                 server.server_close()
             return 0
         print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
-        return 0
+        return 1 if args.command == 'preview-import' and not result['valid'] else 0
     except (ValidationError, OSError, sqlite3.Error) as exc:
         print(f'impact-ledger: {exc}', file=sys.stderr)
         return 2
