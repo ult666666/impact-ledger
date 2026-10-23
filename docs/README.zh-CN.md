@@ -12,6 +12,9 @@ python3 -m impact_ledger --db .local/demo.db serve
 打开 http://127.0.0.1:8765 。服务仅监听本机地址。使用 Ctrl-C 停止。`seed` 仅能写入空数据库；重复演示时请换一个数据库路径。
 
 - 日期筛选包含起止日期；项目名称按原文精确匹配。点击 Apply filters 后，统计、图表、表格和导出使用同一范围。
+- 勾选 Compare prior period，使用**已应用**的起止日期和同一项目，对比紧邻的等天数前期。必须明确填写两个日期并点击 Apply filters；缺失日期会显示操作提示。2026-09-01 至 2026-09-30 对比 2026-08-02 至 2026-08-31，并非整个上月。日期计算不受夏令时影响；前期早于公元 0001 年时会拒绝。
+- 对比表列出两个期间的总数和“本期 − 前期”差值。每个期间独立去重，同一人可能在两个期间出现。空期间显示零；不计算环比百分比，原有比率分母为零时仍为 null。较低的预算差额本身不能证明改善或因果效果。
+- 点击 Print report 可打印或用浏览器保存 PDF：包含合成数据声明、已应用筛选、八项本期总数、图表、完整表格和已开启的对比；隐藏按钮与导入表单。导入成功后沿用已应用筛选刷新对比，未提交的表单修改不生效。
 - Unique participants：所选活动中不同参与者 ID 的数量。一个人参加多场活动仍只计算一次。
 - Attendance：一人参加一场活动记一次。同一人同一场不可重复。
 - Participant hours：每场活动时长乘以出席人数，假设每人参加全程。
@@ -36,6 +39,7 @@ attendance_id,session_id,participant_id
 python3 -m impact_ledger --db .local/example.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/example.db import attendance examples/attendance.csv
 python3 -m impact_ledger --db .local/example.db summary --program '社区服务'
+python3 -m impact_ledger --db .local/demo.db comparison --start 2026-09-01 --end 2026-09-30 --program 'Learning Lab'
 ```
 
 开发与测试需要 Node 24+：

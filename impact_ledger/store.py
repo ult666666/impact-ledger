@@ -67,6 +67,16 @@ def ratio(numerator, denominator):
     return float((Decimal(numerator) / Decimal(denominator)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
+def hundredth_totals(rows):
+    budget = sum(row['budget_cents'] for row in rows)
+    actual = sum(row['actual_cents'] for row in rows)
+    return {
+        'participant_hours': sum(row['duration_hundredths'] * len(row['participants']) for row in rows),
+        'session_hours': sum(row['duration_hundredths'] for row in rows),
+        'budget': budget, 'actual': actual, 'variance': actual - budget,
+    }
+
+
 def summarize(rows):
     people = {person for row in rows for person in row['participants']}
     attendance = sum(len(row['participants']) for row in rows)
@@ -215,6 +225,34 @@ class Store:
                 'budget': row['budget_cents'] / 100, 'actual': row['actual_cents'] / 100,
                 'variance': (row['actual_cents'] - row['budget_cents']) / 100,
             } for row in rows],
+        }
+
+    def comparison(self, start=None, end=None, program=None):
+        """Compare two inclusive calendar windows in one database read transaction."""
+        if not start or not end:
+            raise ValidationError('Comparison requires both start and end dates. Set both dates and apply filters.')
+        self._where(start, end, program)
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+        days = (last - first).days + 1
+        if first.toordinal() <= days:
+            raise ValidationError('Previous period would start before 0001-01-01. Choose a later or shorter range.')
+        previous_start = (first - timedelta(days=days)).isoformat()
+        previous_end = (first - timedelta(days=1)).isoformat()
+        with self._connection() as connection:
+            connection.execute('BEGIN')
+            current_rows = self._rows(connection, start, end, program)
+            previous_rows = self._rows(connection, previous_start, previous_end, program)
+        current, previous = summarize(current_rows), summarize(previous_rows)
+        current_exact, previous_exact = hundredth_totals(current_rows), hundredth_totals(previous_rows)
+        counts = ('sessions', 'unique_participants', 'attendance')
+        amounts = ('participant_hours', 'session_hours', 'budget', 'actual', 'variance')
+        return {
+            'synthetic': True, 'currency': 'USD',
+            'filters': {'start': start, 'end': end, 'program': program or None}, 'days': days,
+            'current': {'start': start, 'end': end, 'totals': current},
+            'previous': {'start': previous_start, 'end': previous_end, 'totals': previous},
+            'deltas': {**{key: current[key] - previous[key] for key in counts},
+                       **{key: (current_exact[key] - previous_exact[key]) / 100 for key in amounts}},
         }
 
     def metadata(self):

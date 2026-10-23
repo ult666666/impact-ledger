@@ -73,7 +73,88 @@ try {
     await page.screenshot({path: 'docs/screenshots/desktop.png', fullPage: true});
   });
 
+  await test('comparison uses applied filters and matches local/static totals and dates', async () => {
+    const results = [];
+    for (const url of [apiUrl, staticUrl]) {
+      await ready(url);
+      await page.getByLabel('Start date', {exact: true}).fill('2026-09-01');
+      await page.getByLabel('End date', {exact: true}).fill('2026-09-30');
+      await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      await page.waitForFunction(() => document.querySelector('#metric-sessions')?.textContent === '3 sessions delivered');
+      await page.getByLabel('Start date', {exact: true}).fill('2020-01-01');
+      await page.getByLabel('Program', {exact: true}).selectOption('Digital Access');
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+      await page.locator('#comparison-panel').waitFor({state: 'visible'});
+      assert.match(await page.locator('#comparison-ranges').innerText(), /2026-09-01.*2026-09-30.*2026-08-02.*2026-08-31/);
+      const rows = await page.locator('#comparison-body tr').allTextContents();
+      assert.equal(rows.length, 8);
+      assert.match(rows[0], /Sessions35−2/);
+      results.push(rows);
+      if (url === staticUrl) {
+        await page.getByLabel('Start date', {exact: true}).fill('2026-09-01');
+        await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
+        await page.screenshot({path: 'docs/screenshots/comparison.png', fullPage: true});
+      }
+      assert.match(await page.locator('#report-filters').textContent(), /Learning Lab/);
+    }
+    assert.deepEqual(results[0], results[1]);
+  });
+
+  await test('comparison gives actionable missing-date text and zeros for empty windows in both modes', async () => {
+    for (const url of [apiUrl, staticUrl]) {
+      await ready(url);
+      await page.getByLabel('Start date', {exact: true}).fill('');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+      await page.locator('#comparison-status').filter({hasText: /both start and end dates/}).waitFor();
+      assert.ok(await page.locator('#comparison-panel').isHidden());
+      await page.getByLabel('Start date', {exact: true}).fill('2020-01-01');
+      await page.getByLabel('End date', {exact: true}).fill('2020-01-31');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      await page.locator('#comparison-panel').waitFor({state: 'visible'});
+      assert.equal(await page.locator('#comparison-body tr').first().innerText(), 'Sessions\t0\t0\t0');
+      await page.getByLabel('Start date', {exact: true}).fill('0001-01-01');
+      await page.getByLabel('End date', {exact: true}).fill('0001-01-01');
+      await page.getByRole('button', {name: 'Apply filters'}).click();
+      await page.locator('#comparison-status').filter({hasText: /before 0001-01-01/}).waitFor();
+      assert.ok(await page.locator('#comparison-panel').isHidden());
+      await page.getByRole('checkbox', {name: 'Compare prior period'}).uncheck();
+      assert.ok(await page.locator('#comparison-panel').isHidden());
+    }
+  });
+
+  await test('print report includes applied totals, comparison and unclipped tables with no controls', async () => {
+    for (const url of [apiUrl, staticUrl]) {
+    await ready(url);
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    await page.evaluate(() => {window.print = () => {window.__printed = true; window.dispatchEvent(new Event('beforeprint'));};});
+    await page.getByRole('button', {name: 'Print report', exact: true}).click();
+    assert.equal(await page.evaluate(() => window.__printed), true);
+    await page.emulateMedia({media: 'print'});
+    assert.ok(await page.getByRole('heading', {name: 'Impact Ledger stakeholder report', exact: true}).isVisible());
+    assert.match(await page.locator('#report-heading').innerText(), /synthetic/i);
+    assert.equal(await page.locator('#report-totals-body tr').count(), 8);
+    assert.ok(await page.locator('#comparison-panel').isVisible());
+    for (const control of await page.locator('button, input, select').all()) assert.ok(!await control.isVisible());
+    for (const table of await page.locator('.table-scroll').all()) {
+      if (await table.isVisible()) assert.ok(await table.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
+    }
+    await page.screenshot({path: 'docs/screenshots/print-report.png', fullPage: true});
+    await page.pdf({path: '.local/stakeholder-report.pdf', format: 'A4', printBackground: true});
+    await page.emulateMedia({media: 'screen'});
+    await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+    assert.equal(await page.locator('.chart-details[open]').count(), 0);
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).uncheck();
+    await page.emulateMedia({media: 'print'});
+    assert.ok(await page.locator('#comparison-panel').isHidden());
+    await page.emulateMedia({media: 'screen'});
+    }
+  });
+
   await test('empty date filter renders zero metrics and a useful empty state', async () => {
+    await ready(apiUrl);
     await page.getByLabel('Start date', {exact: true}).fill('2020-01-01');
     await page.getByLabel('End date', {exact: true}).fill('2020-01-31');
     await page.getByRole('button', {name: 'Apply filters'}).click();
@@ -112,11 +193,36 @@ try {
     assert.ok((await page.locator('#sessions-body').innerText()).includes('社区服务'));
   });
 
+  await test('comparison refresh includes local imports and preserves applied filters despite draft edits', async () => {
+    await ready(apiUrl);
+    await page.getByLabel('Start date', {exact: true}).fill('2026-09-01');
+    await page.getByLabel('End date', {exact: true}).fill('2026-09-30');
+    await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
+    await page.getByRole('button', {name: 'Apply filters'}).click();
+    await page.waitForFunction(() => document.querySelector('#metric-sessions')?.textContent === '3 sessions delivered');
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    await page.getByLabel('Start date', {exact: true}).fill('2020-01-01');
+    await page.getByLabel('Program', {exact: true}).selectOption('Digital Access');
+    await page.getByLabel('CSV file', {exact: true}).setInputFiles({name: 'comparison.csv', mimeType: 'text/csv', buffer: Buffer.from('session_id,program,session_date,duration_hours,budget,actual\ncomparison-import,Learning Lab,2026-09-30,0.1,0.1,0.2\n')});
+    await page.getByRole('button', {name: 'Import CSV', exact: true}).click();
+    await page.waitForFunction(() => document.querySelector('#comparison-body tr')?.textContent === 'Sessions45−1');
+    assert.match(await page.locator('#comparison-ranges').innerText(), /2026-09-01.*2026-09-30/);
+    const attendanceBefore = (await page.locator('#comparison-body tr').nth(2).locator('td').nth(1).innerText());
+    await page.getByLabel('Record type', {exact: true}).selectOption('attendance');
+    await page.getByLabel('CSV file', {exact: true}).setInputFiles({name: 'attendance.csv', mimeType: 'text/csv', buffer: Buffer.from('attendance_id,session_id,participant_id\ncomparison-a1,comparison-import,demo-p001\ncomparison-a2,comparison-import,comparison-new\n')});
+    await page.getByRole('button', {name: 'Import CSV', exact: true}).click();
+    await page.waitForFunction(before => Number(document.querySelectorAll('#comparison-body tr')[2]?.children[1]?.textContent) === Number(before) + 2, attendanceBefore);
+  });
+
   await test('mobile layout stays inside viewport and offers scrollable tables', async () => {
     await page.setViewportSize({width: 390, height: 844});
     await ready(staticUrl);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     assert.ok(await page.locator('.ledger-scroll').evaluate(el => el.scrollWidth > el.clientWidth));
+    await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
+    await page.locator('#comparison-panel').waitFor({state: 'visible'});
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.screenshot({path: 'docs/screenshots/mobile.png', fullPage: true});
   });
 
@@ -134,7 +240,7 @@ try {
     const csv = await download('Export attendance CSV');
     assert.equal(csv.trim().split(/\r?\n/).length, 115);
     assert.deepEqual(errors, []);
-    assert.deepEqual(httpErrors, [{status: 400, path: '/api/import'}]);
+    assert.deepEqual(httpErrors, [{status: 400, path: '/api/comparison'}, {status: 400, path: '/api/import'}]);
   });
 } finally {
   await browser.close();

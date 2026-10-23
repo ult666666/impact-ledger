@@ -1,6 +1,6 @@
 {
   "name": "impact-ledger",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Typed, dependency-free browser interface for a synthetic nonprofit operations ledger",

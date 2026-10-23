@@ -57,7 +57,7 @@ class StoreTests(unittest.TestCase):
         self.assertIsNone(store.summary(program='Community Kitchen')['totals']['variance_percent'])
 
     def test_bad_date_filters_are_rejected(self):
-        for args in [('2026-2-01', None), ('2026-02-30', None), ('2026-03-01', '2026-02-01')]:
+        for args in [('0000-01-01', None), ('2026-2-01', None), ('2026-02-30', None), ('2026-03-01', '2026-02-01')]:
             with self.subTest(args=args), self.assertRaises(ValidationError):
                 self.store.summary(*args)
 

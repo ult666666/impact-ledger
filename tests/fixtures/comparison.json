@@ -1,0 +1,755 @@
+{
+  "snapshot": {
+    "synthetic": true,
+    "currency": "USD",
+    "sessions": [
+      {
+        "session_id": "p1",
+        "program": "Lab",
+        "session_date": "2024-02-28",
+        "duration_hundredths": 10,
+        "budget_cents": 10,
+        "actual_cents": 20,
+        "participants": [
+          "p1",
+          "p2"
+        ],
+        "attendance_records": [
+          {
+            "attendance_id": "p1-a0",
+            "participant_id": "p1"
+          },
+          {
+            "attendance_id": "p1-a1",
+            "participant_id": "p2"
+          }
+        ]
+      },
+      {
+        "session_id": "p2",
+        "program": "Lab",
+        "session_date": "2024-02-29",
+        "duration_hundredths": 20,
+        "budget_cents": 20,
+        "actual_cents": 30,
+        "participants": [
+          "p1"
+        ],
+        "attendance_records": [
+          {
+            "attendance_id": "p2-a0",
+            "participant_id": "p1"
+          }
+        ]
+      },
+      {
+        "session_id": "c1",
+        "program": "Lab",
+        "session_date": "2024-03-01",
+        "duration_hundredths": 15,
+        "budget_cents": 40,
+        "actual_cents": 21,
+        "participants": [
+          "p1",
+          "p3",
+          "p4"
+        ],
+        "attendance_records": [
+          {
+            "attendance_id": "c1-a0",
+            "participant_id": "p1"
+          },
+          {
+            "attendance_id": "c1-a1",
+            "participant_id": "p3"
+          },
+          {
+            "attendance_id": "c1-a2",
+            "participant_id": "p4"
+          }
+        ]
+      },
+      {
+        "session_id": "c2",
+        "program": "Lab",
+        "session_date": "2024-03-02",
+        "duration_hundredths": 5,
+        "budget_cents": 0,
+        "actual_cents": 1,
+        "participants": [],
+        "attendance_records": []
+      },
+      {
+        "session_id": "other",
+        "program": "Other",
+        "session_date": "2024-03-01",
+        "duration_hundredths": 100,
+        "budget_cents": 100,
+        "actual_cents": 200,
+        "participants": [
+          "p9"
+        ],
+        "attendance_records": [
+          {
+            "attendance_id": "other-a0",
+            "participant_id": "p9"
+          }
+        ]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "leap day; same person in both windows; fractional deltas and costs once",
+      "filters": {
+        "start": "2024-03-01",
+        "end": "2024-03-02",
+        "program": "Lab"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "program": "Lab"
+        },
+        "days": 2,
+        "current": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "totals": {
+            "sessions": 2,
+            "unique_participants": 3,
+            "attendance": 3,
+            "participant_hours": 0.45,
+            "session_hours": 0.2,
+            "budget": 0.4,
+            "actual": 0.22,
+            "variance": -0.18,
+            "variance_percent": -45,
+            "attendance_per_participant": 1
+          }
+        },
+        "previous": {
+          "start": "2024-02-28",
+          "end": "2024-02-29",
+          "totals": {
+            "sessions": 2,
+            "unique_participants": 2,
+            "attendance": 3,
+            "participant_hours": 0.4,
+            "session_hours": 0.3,
+            "budget": 0.3,
+            "actual": 0.5,
+            "variance": 0.2,
+            "variance_percent": 66.67,
+            "attendance_per_participant": 1.5
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 1,
+          "attendance": 0,
+          "participant_hours": 0.05,
+          "session_hours": -0.1,
+          "budget": 0.1,
+          "actual": -0.28,
+          "variance": -0.38
+        }
+      }
+    },
+    {
+      "name": "unequal calendar months use equal day count",
+      "filters": {
+        "start": "2024-03-01",
+        "end": "2024-03-31",
+        "program": "Lab"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-03-01",
+          "end": "2024-03-31",
+          "program": "Lab"
+        },
+        "days": 31,
+        "current": {
+          "start": "2024-03-01",
+          "end": "2024-03-31",
+          "totals": {
+            "sessions": 2,
+            "unique_participants": 3,
+            "attendance": 3,
+            "participant_hours": 0.45,
+            "session_hours": 0.2,
+            "budget": 0.4,
+            "actual": 0.22,
+            "variance": -0.18,
+            "variance_percent": -45,
+            "attendance_per_participant": 1
+          }
+        },
+        "previous": {
+          "start": "2024-01-30",
+          "end": "2024-02-29",
+          "totals": {
+            "sessions": 2,
+            "unique_participants": 2,
+            "attendance": 3,
+            "participant_hours": 0.4,
+            "session_hours": 0.3,
+            "budget": 0.3,
+            "actual": 0.5,
+            "variance": 0.2,
+            "variance_percent": 66.67,
+            "attendance_per_participant": 1.5
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 1,
+          "attendance": 0,
+          "participant_hours": 0.05,
+          "session_hours": -0.1,
+          "budget": 0.1,
+          "actual": -0.28,
+          "variance": -0.38
+        }
+      }
+    },
+    {
+      "name": "nonleap boundary and empty windows",
+      "filters": {
+        "start": "2023-03-01",
+        "end": "2023-03-31",
+        "program": null
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2023-03-01",
+          "end": "2023-03-31",
+          "program": null
+        },
+        "days": 31,
+        "current": {
+          "start": "2023-03-01",
+          "end": "2023-03-31",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "2023-01-29",
+          "end": "2023-02-28",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    },
+    {
+      "name": "minimum supported current date",
+      "filters": {
+        "start": "0001-01-02",
+        "end": "0001-01-02",
+        "program": null
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "0001-01-02",
+          "end": "0001-01-02",
+          "program": null
+        },
+        "days": 1,
+        "current": {
+          "start": "0001-01-02",
+          "end": "0001-01-02",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "0001-01-01",
+          "end": "0001-01-01",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    },
+    {
+      "name": "DST boundary is calendar arithmetic",
+      "filters": {
+        "start": "2026-03-08",
+        "end": "2026-03-09",
+        "program": null
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2026-03-08",
+          "end": "2026-03-09",
+          "program": null
+        },
+        "days": 2,
+        "current": {
+          "start": "2026-03-08",
+          "end": "2026-03-09",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "2026-03-06",
+          "end": "2026-03-07",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    },
+    {
+      "name": "missing program produces zero totals",
+      "filters": {
+        "start": "2024-03-01",
+        "end": "2024-03-02",
+        "program": "Missing"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "program": "Missing"
+        },
+        "days": 2,
+        "current": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "2024-02-28",
+          "end": "2024-02-29",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    },
+    {
+      "name": "zero prior window",
+      "filters": {
+        "start": "2024-02-28",
+        "end": "2024-02-29",
+        "program": "Lab"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-02-28",
+          "end": "2024-02-29",
+          "program": "Lab"
+        },
+        "days": 2,
+        "current": {
+          "start": "2024-02-28",
+          "end": "2024-02-29",
+          "totals": {
+            "sessions": 2,
+            "unique_participants": 2,
+            "attendance": 3,
+            "participant_hours": 0.4,
+            "session_hours": 0.3,
+            "budget": 0.3,
+            "actual": 0.5,
+            "variance": 0.2,
+            "variance_percent": 66.67,
+            "attendance_per_participant": 1.5
+          }
+        },
+        "previous": {
+          "start": "2024-02-26",
+          "end": "2024-02-27",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 2,
+          "unique_participants": 2,
+          "attendance": 3,
+          "participant_hours": 0.4,
+          "session_hours": 0.3,
+          "budget": 0.3,
+          "actual": 0.5,
+          "variance": 0.2
+        }
+      }
+    },
+    {
+      "name": "single-day zero budget and negative variance delta",
+      "filters": {
+        "start": "2024-03-02",
+        "end": "2024-03-02",
+        "program": "Lab"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-03-02",
+          "end": "2024-03-02",
+          "program": "Lab"
+        },
+        "days": 1,
+        "current": {
+          "start": "2024-03-02",
+          "end": "2024-03-02",
+          "totals": {
+            "sessions": 1,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0.05,
+            "budget": 0,
+            "actual": 0.01,
+            "variance": 0.01,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "2024-03-01",
+          "end": "2024-03-01",
+          "totals": {
+            "sessions": 1,
+            "unique_participants": 3,
+            "attendance": 3,
+            "participant_hours": 0.45,
+            "session_hours": 0.15,
+            "budget": 0.4,
+            "actual": 0.21,
+            "variance": -0.19,
+            "variance_percent": -47.5,
+            "attendance_per_participant": 1
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": -3,
+          "attendance": -3,
+          "participant_hours": -0.45,
+          "session_hours": -0.1,
+          "budget": -0.4,
+          "actual": -0.2,
+          "variance": 0.2
+        }
+      }
+    },
+    {
+      "name": "80 Unicode codepoints in an unmatched program label",
+      "filters": {
+        "start": "2024-03-01",
+        "end": "2024-03-02",
+        "program": "🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱"
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "program": "🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱"
+        },
+        "days": 2,
+        "current": {
+          "start": "2024-03-01",
+          "end": "2024-03-02",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "2024-02-28",
+          "end": "2024-02-29",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    },
+    {
+      "name": "early year 0002 across year boundary",
+      "filters": {
+        "start": "0002-01-01",
+        "end": "0002-01-02",
+        "program": null
+      },
+      "expected": {
+        "synthetic": true,
+        "currency": "USD",
+        "filters": {
+          "start": "0002-01-01",
+          "end": "0002-01-02",
+          "program": null
+        },
+        "days": 2,
+        "current": {
+          "start": "0002-01-01",
+          "end": "0002-01-02",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "previous": {
+          "start": "0001-12-30",
+          "end": "0001-12-31",
+          "totals": {
+            "sessions": 0,
+            "unique_participants": 0,
+            "attendance": 0,
+            "participant_hours": 0,
+            "session_hours": 0,
+            "budget": 0,
+            "actual": 0,
+            "variance": 0,
+            "variance_percent": null,
+            "attendance_per_participant": null
+          }
+        },
+        "deltas": {
+          "sessions": 0,
+          "unique_participants": 0,
+          "attendance": 0,
+          "participant_hours": 0,
+          "session_hours": 0,
+          "budget": 0,
+          "actual": 0,
+          "variance": 0
+        }
+      }
+    }
+  ],
+  "invalid_filters": [
+    {},
+    {
+      "start": "2024-03-01"
+    },
+    {
+      "end": "2024-03-02"
+    },
+    {
+      "start": "",
+      "end": "2024-03-02"
+    },
+    {
+      "start": "2024-03-02",
+      "end": "2024-03-01"
+    },
+    {
+      "start": "2023-02-29",
+      "end": "2023-03-01"
+    },
+    {
+      "start": "2024-2-01",
+      "end": "2024-03-01"
+    },
+    {
+      "start": "0001-01-01",
+      "end": "0001-01-01"
+    },
+    {
+      "start": "0001-01-02",
+      "end": "0001-01-03"
+    },
+    {
+      "start": "0000-01-01",
+      "end": "0000-01-02"
+    },
+    {
+      "start": "2024-03-01",
+      "end": "2024-03-02",
+      "program": "=Invalid"
+    },
+    {
+      "start": "2024-03-01",
+      "end": "2024-03-02",
+      "program": "Lab"
+    },
+    {
+      "start": "2024-03-01",
+      "end": "2024-03-02",
+      "program": "🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱🌱"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
-import {csvFromSnapshot, metadataFromSnapshot, summaryFromSnapshot} from './model.js';
-import type {Filters, Metadata, Snapshot, Summary} from './model.js';
+import {comparisonFromSnapshot, csvFromSnapshot, metadataFromSnapshot, summaryFromSnapshot} from './model.js';
+import type {Comparison, ComparisonMeasure, Filters, Metadata, Snapshot, Summary, Totals} from './model.js';
 
 function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -17,6 +17,47 @@ let snapshot: Snapshot | null = null;
 let metadata: Metadata | null = null;
 let appliedFilters: Filters = {};
 let requestRevision = 0;
+let comparisonRevision = 0;
+const measures: {key: ComparisonMeasure; label: string; currency?: boolean}[] = [
+  {key: 'sessions', label: 'Sessions'}, {key: 'unique_participants', label: 'Unique participants'},
+  {key: 'attendance', label: 'Attendance'}, {key: 'participant_hours', label: 'Participant hours'},
+  {key: 'session_hours', label: 'Session hours'}, {key: 'budget', label: 'Budget', currency: true},
+  {key: 'actual', label: 'Actual', currency: true}, {key: 'variance', label: 'Variance (actual − budget)', currency: true},
+];
+function measureValue(value: number, currency = false, signed = false): string {
+  return `${signed && value > 0 ? '+' : value < 0 ? '−' : ''}${currency ? money(Math.abs(value)) : number(Math.abs(value))}`;
+}
+function clearComparison(message: string): void {
+  ++comparisonRevision;
+  element('comparison-panel').hidden = true;
+  element('comparison-body').replaceChildren();
+  setText('comparison-status', message);
+}
+async function refreshComparison(): Promise<void> {
+  const enabled = element<HTMLInputElement>('compare-prior').checked;
+  clearComparison(enabled ? 'Updating comparison for the applied filters…' : 'Compare the immediately preceding equal-duration period using applied filters.');
+  if (!enabled) return;
+  const revision = comparisonRevision;
+  const filters = {...appliedFilters};
+  try {
+    if (!filters.start || !filters.end) throw new Error('Comparison requires both start and end dates. Set both dates and apply filters.');
+    const result = isStatic && snapshot ? comparisonFromSnapshot(snapshot, filters) : await json<Comparison>('./api/comparison?' + query(filters));
+    if (revision !== comparisonRevision) return;
+    setText('comparison-ranges', `Current: ${result.current.start} – ${result.current.end} · Previous: ${result.previous.start} – ${result.previous.end} · ${result.days} days each`);
+    const body = element('comparison-body');
+    for (const measure of measures) tableRow(body, [measure.label, measureValue(result.current.totals[measure.key], measure.currency), measureValue(result.previous.totals[measure.key], measure.currency), measureValue(result.deltas[measure.key], measure.currency, true)]);
+    element('comparison-panel').hidden = false;
+    setText('comparison-status', 'Comparison reflects the applied dates and program. Delta = current − previous.');
+  } catch (error) {
+    if (revision !== comparisonRevision) return;
+    setText('comparison-status', error instanceof Error ? error.message : 'Comparison is unavailable. Apply your filters again.');
+  }
+}
+function renderReportTotals(totals: Totals): void {
+  const body = element('report-totals-body');
+  body.replaceChildren();
+  for (const measure of measures) tableRow(body, [measure.label, measureValue(totals[measure.key], measure.currency)]);
+}
 
 async function json<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
@@ -123,6 +164,8 @@ function renderPrograms(summary: Summary): void {
 
 function render(summary: Summary): void {
   const totals = summary.totals;
+  setText('report-filters', `Applied filters · ${summary.filters.start ?? 'Unbounded start'} – ${summary.filters.end ?? 'Unbounded end'} · ${summary.filters.program ?? 'All programs'}`);
+  renderReportTotals(totals);
   setText('metric-unique', number(totals.unique_participants));
   setText('metric-attendance', number(totals.attendance));
   setText('metric-hours', number(totals.participant_hours));
@@ -159,18 +202,21 @@ function render(summary: Summary): void {
   }
 }
 
-async function refresh(): Promise<void> {
+async function refresh(filtersToApply?: Filters): Promise<void> {
   const revision = ++requestRevision;
   try {
-    const filters = readFilters();
+    const filters = filtersToApply ?? readFilters();
     element('app-error').hidden = true;
     setText('app-status', 'Updating this view…');
+    clearComparison('Comparison cleared while the view updates.');
     const summary = isStatic && snapshot ? summaryFromSnapshot(snapshot, filters) : await json<Summary>('./api/summary?' + query(filters));
     if (revision !== requestRevision) return;
     appliedFilters = filters;
     render(summary);
+    await refreshComparison();
   } catch (error) {
     if (revision !== requestRevision) return;
+    clearComparison('Comparison cleared because the view could not be updated. Apply valid filters to compare again.');
     setText('app-status', 'The view could not be updated. Check your filters or local service.');
     showError(error);
   }
@@ -234,7 +280,7 @@ async function importCSV(): Promise<void> {
     status.textContent = `${result.imported} ${kind} imported. Current filters still apply; reset filters to view all dates.`;
     fileInput.value = '';
     await loadMetadata();
-    await refresh();
+    await refresh({...appliedFilters});
   } catch (error) {
     status.classList.add('error');
     status.textContent = error instanceof Error ? error.message : 'Import failed. No rows were added.';
@@ -243,6 +289,17 @@ async function importCSV(): Promise<void> {
 
 element<HTMLFormElement>('filters').addEventListener('submit', event => {event.preventDefault(); void refresh();});
 element('reset-filters').addEventListener('click', resetFilters);
+element('compare-prior').addEventListener('change', () => {void refreshComparison();});
+element('print-report').addEventListener('click', () => window.print());
+let printDisclosures: HTMLDetailsElement[] = [];
+window.addEventListener('beforeprint', () => {
+  printDisclosures.push(...document.querySelectorAll<HTMLDetailsElement>('.chart-details:not([open])'));
+  for (const disclosure of printDisclosures) disclosure.open = true;
+});
+window.addEventListener('afterprint', () => {
+  for (const disclosure of printDisclosures) disclosure.open = false;
+  printDisclosures = [];
+});
 element('export-sessions').addEventListener('click', () => {void exportCSV('sessions');});
 element('export-attendance').addEventListener('click', () => {void exportCSV('attendance');});
 element<HTMLFormElement>('import-form').addEventListener('submit', event => {event.preventDefault(); void importCSV();});

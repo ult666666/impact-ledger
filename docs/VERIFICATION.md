@@ -1,5 +1,32 @@
 # Verification record
 
+## v1.1.0 — prior-period comparison and stakeholder print report
+
+Verified locally on 23 October 2026 with the same macOS/Python/Node/TypeScript/Chromium environment recorded below. These are local results; publication and hosted CI are separate steps.
+
+| Command / journey | Observed result |
+| --- | --- |
+| `python3 -W error::ResourceWarning -m unittest discover -s tests -v` | **39 passed**: 14 existing store, 4 comparison, 15 real HTTP, 6 CLI subprocess tests; no resource warnings |
+| `npm run typecheck` | Strict TypeScript check passed |
+| `npm run build` | Local JavaScript compiled and deterministic static site regenerated |
+| `npm test` | **13 Node tests passed** |
+| `npm run test:browser` | **10 Chromium tests passed**, exercising local API and static mode under a repository subpath |
+| Fresh `.local/comparison-v110-env` virtual environment and `pip install --no-deps .` | Built and installed `impact-ledger` **1.1.0** with packaged frontend assets |
+| `.local/comparison-v110-env/bin/python scripts/verify_package.py` | Installed package and distribution versions both 1.1.0; outside-checkout seed, summary/comparison CLI, matching comparison HTTP response, health, HTML/JS, and print CSS verified |
+| `git diff --check` | No whitespace errors |
+
+The shared hand-derived `tests/fixtures/comparison.json` has **10 valid oracles and 13 invalid filter cases**, consumed by both Python and Node. It covers unequal calendar month boundaries, leap and nonleap years, DST dates, year-0000 rejection, minimum valid previous date in year 0001, an early year-0002 crossing, missing/blank/invalid/reversed dates, prior-period underflow, exact program selection, empty and zero prior windows, distinct people appearing in both windows, session costs with many attendances, and exact fractional deltas. Program-label oracles include 80 Unicode codepoints and Python whitespace parity. Node summary/export filters also reject invalid program labels and year 0000 consistently with the store. Separate high-integer regressions in both languages prove deltas subtract cents before converting to JSON numbers. Standard ratio half-up tie tests remain in the full suite.
+
+New model, CLI, HTTP and UI tests were observed failing before implementation. The large-total regression exposed lost fractional deltas from subtracting already-converted numbers, and now passes with integer subtraction. A repeated `beforeprint` lifecycle check exposed lost disclosure restore state; the handler now retains the original closed disclosures across repeated print events. Rendered PDF review then exposed rounded-panel clipping in later ledger pages: a minimal print-only square-corner experiment removed it, and the final print style uses square corners on the multi-page ledger. The final six-page PDF was re-rendered for visual verification. Two initial browser expectations were corrected against the deterministic seed: September Learning Lab has 3 sessions and its immediately prior 30-day window has 5. No failing checks remain in the recorded final runs.
+
+Browser coverage adds applied-filter comparison in both modes (draft form edits do not alter it), visible missing-date and year-0001-underflow messages, zero empty windows, opt-out hiding, local import refresh for both sessions and attendance, and print lifecycle restoration. Print checks run in both local and static modes, include all eight current totals and optional comparison, hide every button/input/select, and assert all visible table containers fit without horizontal clipping. The two expected HTTP 400 responses are intentional comparison underflow and invalid CSV import; no uncaught page errors or unexpected HTTP failures were observed.
+
+Screenshots are regenerated current v1.1.0 evidence: [desktop](screenshots/desktop.png), [comparison](screenshots/comparison.png), [mobile with comparison](screenshots/mobile.png), and [print media](screenshots/print-report.png). The 390 × 844 mobile view has no document overflow. Chromium also wrote a six-page A4 PDF for pagination review; rendered pages were visually inspected for table/chart legibility and clipping. This intermediate PDF is not a release artifact. Printer/browser settings can alter pagination, and this is not a full accessibility or physical-printer audit.
+
+## Historical v1.0.0 verification
+
+The original verification narrative and counts below are retained as historical evidence for baseline commit `3813fbe8bb2e538c10770ba8c98973a6bd2c7ec8`. Current screenshot files show v1.1.0; original screenshot bytes remain in that baseline commit.
+
 Verified locally on **23 October 2026**, macOS arm64, Python **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, and Playwright **1.61.1** with Chromium headless shell build **1228**.
 
 This record describes observed local results, not a claim that hosted CI has already run. The repository CI additionally targets Python 3.11/3.13 on Ubuntu and Node 24. Hosted CI and Pages configuration require the repository owner's publication step. Both CI and Pages builds run the full Python and Chromium suites before publishing artifacts; action versions are pinned to official resolved commit IDs and jobs have 15-minute limits.

@@ -14,7 +14,7 @@ flowchart LR
   CSV[Synthetic UTF-8 CSV] --> Validation
 ```
 
-`impact_ledger/store.py` owns schema creation, input validation, transactions, filtering, aggregation, deterministic seeding, and CSV export. `server.py` translates bounded HTTP requests into store calls. `__main__.py` exposes the same behavior through the CLI. Each operation opens and closes its own SQLite connection, with foreign keys enabled. Summary reads use one SQLite read transaction so session and attendance queries share a snapshot.
+`impact_ledger/store.py` owns schema creation, input validation, transactions, filtering, aggregation, deterministic seeding, and CSV export. `server.py` translates bounded HTTP requests into store calls. `__main__.py` exposes the same behavior through the CLI. Each operation opens and closes its own SQLite connection, with foreign keys enabled. Summary and comparison reads use one SQLite read transaction so session and attendance queries share a snapshot.
 
 Sessions and attendance are separate tables. Joining attendance directly to session costs and summing would multiply spending by attendance; the implementation instead selects sessions once, attaches their participant IDs, and sums session costs once. Unique participants are deduplicated inside the selected set. Sessions without attendance remain present.
 
@@ -33,7 +33,7 @@ Imports append. They do not update or delete existing records. Sessions must be 
 
 `web/src/app.ts` uses typed API responses, native HTML forms, DOM text nodes, SVG charts, and accessible HTML tables. There is no React, UI library, CDN script, remote font, or browser runtime package. TypeScript 5.9.3 compiles into the Python package's `static/` directory. Compiled JavaScript is committed so a wheel or source install can serve the dashboard without Node.
 
-Applied filters are held separately from edits in the form. Downloads correspond to the applied view. A request revision prevents a slower prior filter response from replacing a newer view. Import errors are presented without clearing the file or claiming rows were saved. An imported file refreshes metadata; existing date filters still apply until reset.
+Applied filters are held separately from edits in the form. Downloads, comparisons, and print reports correspond to the applied view. Comparison has its own request revision, clears during filter refresh or a failed update, and explains missing dates. Successful imports refresh the existing applied filters; draft edits remain unapplied. A request revision prevents a slower prior filter response from replacing a newer view. Import errors are presented without clearing the file or claiming rows were saved. An imported file refreshes metadata; existing date filters still apply until reset.
 
 Charts are accompanied by exact-value tables. Empty selections display zero activity and undefined ratios. The mobile session table has its own scroll container so the document itself does not overflow. Labels are rendered with `textContent`/text nodes; CSV text is never assigned to `innerHTML`.
 
@@ -52,14 +52,36 @@ All successful JSON responses include `synthetic: true` where applicable; curren
 | GET | `/api/health` | Local health, no database path |
 | GET | `/api/meta` | All-program list, date bounds, session/attendance counts, import limits |
 | GET | `/api/summary?start=&end=&program=` | Totals, per-program and monthly aggregates, session ledger |
+| GET | `/api/comparison?start=YYYY-MM-DD&end=YYYY-MM-DD&program=` | Explicit inclusive dates required; current and immediately preceding equal-day totals and signed deltas |
 | GET | `/api/snapshot?start=&end=&program=` | Synthetic session rows, integer units, participant/attendance IDs |
 | GET | `/api/export?kind=sessions\|attendance&start=&end=&program=` | Filtered attachment in import CSV schema |
 | POST | `/api/import?kind=sessions\|attendance` | Append UTF-8 `text/csv`; successful response is 201 with kind/imported count |
 | GET | `/`, `/app.js`, `/model.js`, `/styles.css`, `/favicon.svg` | Explicit static asset allowlist |
 
-Optional dates are inclusive. Omitted/blank filters are unbounded. Program matching is exact and case-sensitive. `kind` is required for import/export. No pagination is implemented; summaries/snapshots return every selected session, so large databases are outside the intended scope.
+Summary/snapshot/export dates are optional and inclusive. Omitted/blank filters are unbounded. Program matching is exact and case-sensitive. `kind` is required for import/export. No pagination is implemented; summaries/snapshots return every selected session, so large databases are outside the intended scope.
 
 Application error statuses: 400 for validation/framing errors, 403 for invalid Host/cross-origin writes, 404 for unknown routes, 405 for unsupported methods on known API routes, 408 for an incomplete timed-out body, 411 for missing length, 413 for oversized length, 415 for unsupported CSV encoding/media type, and 503 for unavailable SQLite or missing built assets. Failed imports add no rows.
+
+## Comparison and print contract
+
+`Store.comparison(start, end, program)`, CLI `comparison --start ... --end ... [--program ...]`, GET `/api/comparison`, and TypeScript `comparisonFromSnapshot(snapshot, filters)` share this small response:
+
+```json
+{
+  "synthetic": true, "currency": "USD",
+  "filters": {"start": "2026-09-01", "end": "2026-09-30", "program": "Learning Lab"},
+  "days": 30,
+  "current": {"start": "2026-09-01", "end": "2026-09-30", "totals": {}},
+  "previous": {"start": "2026-08-02", "end": "2026-08-31", "totals": {}},
+  "deltas": {}
+}
+```
+
+Each `totals` object has all ten standard summary measures. `deltas` contains only `sessions`, `unique_participants`, `attendance`, `participant_hours`, `session_hours`, `budget`, `actual`, and `variance`, with current minus previous. Money/hour deltas subtract integer cents/hundredths before converting for JSON. Existing ratios retain half-up rounding and zero-denominator nulls; no percentage-change fields are calculated.
+
+Both dates must exist in years 0001–9999 and start must be on or before end. For inclusive `[start,end]`, `days = end − start + 1`; previous is `[start − days,start − 1]`. Python uses calendar dates and TypeScript uses ISO UTC day numbers, with no local wall-time/DST arithmetic. Previous-range underflow before 0001-01-01, absent/blank dates, malformed dates, and inverted dates produce controlled errors. Unbounded summary remains separately available. Program matching is identical in both windows, including Unicode labels. Shared hand-derived JSON oracles in `tests/fixtures/comparison.json` are consumed by Python and Node.
+
+Print CSS adds a stakeholder title, synthetic notice, explicit applied filters (including unbounded labels), and all eight current totals. It includes comparison only while enabled and available. Print lifecycle handlers open exact-value chart tables and restore disclosure state afterwards. Navigation, forms, and buttons disappear; scroll limits and table minimum widths are removed so full tables paginate. The report does not claim a generated data date or external provenance. Print pagination and browser PDF output are checked in Chromium; physical printer behavior varies by browser/printer.
 
 ## Local security and deployment limits
 
