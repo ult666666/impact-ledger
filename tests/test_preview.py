@@ -16,6 +16,13 @@ class PreviewTests(unittest.TestCase):
         self.path = Path(self.temp.name) / 'ledger.db'
         self.store = Store(self.path)
 
+    def test_invalid_kind_is_controlled_before_accessing_database(self):
+        self.store.path = Path(self.temp.name) / 'nonexistent' / 'ledger.db'
+        for operation in [self.store.preview_csv, self.store.import_csv]:
+            with self.subTest(operation=operation.__name__), self.assertRaisesRegex(ValidationError, 'kind must be sessions or attendance'):
+                operation('unknown', b'anything')
+        self.assertFalse(self.store.path.parent.exists())
+
     def test_valid_bom_quoted_csv_is_advisory_and_does_not_write(self):
         # A preview implemented with inserts or schema initialization would change these.
         with closing(sqlite3.connect(self.path)) as connection:
@@ -60,10 +67,18 @@ class PreviewTests(unittest.TestCase):
         result = self.store.preview_csv('sessions', payload)
         self.assertFalse(result['valid'])
         self.assertEqual(result['errors'][-1]['code'], 'row_limit')
+        at_limit = payload[:payload.rfind(b's5000,')]
+        accepted = self.store.preview_csv('sessions', at_limit)
+        self.assertTrue(accepted['valid'])
+        self.assertEqual(accepted['rows'], 5000)
         bad = (SESSION_HEADER + ''.join(f's{i},Lab,2026-02-30,1,1,1\n' for i in range(102))).encode()
         result = self.store.preview_csv('sessions', bad)
         self.assertEqual((len(result['errors']), result['errors_total'], result['errors_truncated']), (100, 102, True))
         self.assertEqual((result['errors'][0]['row'], result['errors'][-1]['row']), (2, 101))
+        stopped = self.store.preview_csv('sessions', bad + b'\"unterminated\n')
+        self.assertEqual((len(stopped['errors']), stopped['errors_total'], stopped['errors_truncated']), (100, 103, True))
+        self.assertEqual(stopped['errors'][-1]['code'], 'malformed_csv')
+        self.assertIsNone(stopped['errors'][-1]['row'])
 
     def test_exact_bounds_match_real_import_and_never_normalize_input(self):
         for field, bad in [('duration_hours', '0'), ('duration_hours', '24.01'), ('budget', '10000000.01'),

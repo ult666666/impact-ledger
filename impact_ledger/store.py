@@ -8,7 +8,7 @@ import io
 from pathlib import Path
 import sqlite3
 
-from .csv_import import HEADERS, MAX_BYTES, MAX_ROWS, ValidationError, program_label, valid_date, validate_csv
+from .csv_import import HEADERS, MAX_BYTES, MAX_ROWS, ValidationError, program_label, valid_date, validate_csv, validate_kind
 
 
 def ratio(numerator, denominator):
@@ -99,11 +99,13 @@ class Store:
             connection.close()
 
     def preview_csv(self, kind, payload):
+        validate_kind(kind)
         with self._read_connection() as connection:
             result, _ = validate_csv(kind, payload, connection)
             return result
 
     def import_csv(self, kind, payload):
+        validate_kind(kind)
         try:
             with self._connection() as connection:
                 # Revalidate current state after acquiring the writer transaction.

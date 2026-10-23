@@ -65,10 +65,14 @@ def scaled(value, label, maximum, allow_zero=True):
 MAX_ERRORS = 100
 
 
-def validate_csv(kind, payload, connection):
-    """Return public diagnostics and validated tuples; never write to the ledger."""
+def validate_kind(kind):
     if kind not in HEADERS:
         raise ValidationError('Import kind must be sessions or attendance.')
+
+
+def validate_csv(kind, payload, connection):
+    """Return public diagnostics and validated tuples; never write to the ledger."""
+    validate_kind(kind)
     result = {'kind': kind, 'valid': False, 'rows': 0, 'errors': [],
               'errors_truncated': False, 'errors_total': 0}
     parsed_rows = []
