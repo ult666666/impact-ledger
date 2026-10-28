@@ -7,6 +7,10 @@ import {resolve, extname} from 'node:path';
 import {chromium} from 'playwright';
 
 await mkdir('.local', {recursive: true});
+// Test runs write screenshots to a git-ignored folder so they never rewrite the committed images.
+// Set IMPACT_LEDGER_UPDATE_SCREENSHOTS=1 to refresh docs/screenshots/ on purpose.
+const screenshots = process.env.IMPACT_LEDGER_UPDATE_SCREENSHOTS === '1' ? 'docs/screenshots' : 'test-results/screenshots';
+await mkdir(screenshots, {recursive: true});
 const temp = await mkdtemp(resolve('.local/browser-'));
 const db = resolve(temp, 'ledger.db');
 const seeded = spawnSync('python3', ['-m', 'impact_ledger', '--db', db, 'seed'], {encoding: 'utf8'});
@@ -99,7 +103,7 @@ try {
     assert.equal(await page.locator('#metric-attendance').innerText(), '114');
     await page.getByRole('button', {name: 'Reset filters'}).click();
     await page.waitForFunction(() => document.querySelector('#sessions-body')?.querySelectorAll('tr').length === 36);
-    await page.screenshot({path: 'docs/screenshots/desktop.png', fullPage: true});
+    await page.screenshot({path: `${screenshots}/desktop.png`, fullPage: true});
   });
 
   await test('comparison uses applied filters and matches local/static totals and dates', async () => {
@@ -123,7 +127,7 @@ try {
       if (url === staticUrl) {
         await page.getByLabel('Start date', {exact: true}).fill('2026-09-01');
         await page.getByLabel('Program', {exact: true}).selectOption('Learning Lab');
-        await page.screenshot({path: 'docs/screenshots/comparison.png', fullPage: true});
+        await page.screenshot({path: `${screenshots}/comparison.png`, fullPage: true});
       }
       assert.match(await page.locator('#report-filters').textContent(), /Learning Lab/);
     }
@@ -170,7 +174,7 @@ try {
     for (const table of await page.locator('.table-scroll').all()) {
       if (await table.isVisible()) assert.ok(await table.evaluate(el => el.scrollWidth <= el.clientWidth + 1));
     }
-    await page.screenshot({path: 'docs/screenshots/print-report.png', fullPage: true});
+    await page.screenshot({path: `${screenshots}/print-report.png`, fullPage: true});
     await page.pdf({path: '.local/stakeholder-report.pdf', format: 'A4', printBackground: true});
     await page.emulateMedia({media: 'screen'});
     await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
@@ -252,7 +256,7 @@ try {
     await page.getByRole('checkbox', {name: 'Compare prior period'}).check();
     await page.locator('#comparison-panel').waitFor({state: 'visible'});
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-    await page.screenshot({path: 'docs/screenshots/mobile.png', fullPage: true});
+    await page.screenshot({path: `${screenshots}/mobile.png`, fullPage: true});
   });
 
   await test('static preview filters and exports while imports clearly require local service', async () => {
@@ -416,7 +420,7 @@ try {
     assert.match(await page.locator('#preview-limit').textContent(), /Showing 100 of 102 errors/);
     assert.match(await page.locator('#preview-advisory').textContent(), /optional.*reser|optional.*current/i);
     assert.deepEqual(await (await page.request.get(apiUrl + '/api/meta')).json(), metaBefore);
-    await page.locator('#imports').screenshot({path: 'docs/screenshots/import-preview.png'});
+    await page.locator('#imports').screenshot({path: `${screenshots}/import-preview.png`});
     await page.setViewportSize({width: 390, height: 844});
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     assert.ok(await table.isVisible());

@@ -6,7 +6,7 @@ Use fictional data in code, fixtures, screenshots, and issues. Keep changes smal
 2. Write a boundary or calculation test that fails for the bug or feature, then implement it.
 3. Run `python3 -m unittest discover -s tests -v`, `npm run typecheck`, `npm run build`, and `npm test`.
 4. Install Chromium with `npx playwright install chromium` and run `npm run test:browser`. On Linux use `npx playwright install --with-deps chromium`. Then run `python3 scripts/build_site.py --verify-only` against the exact browser-tested directory before any upload.
-5. Review desktop/mobile screenshots and update documentation for changed definitions, APIs, or limits.
+5. Review the screenshots in the git-ignored `test-results/screenshots/`. To refresh the committed images in `docs/screenshots/`, run `IMPACT_LEDGER_UPDATE_SCREENSHOTS=1 npm run test:browser`. Update documentation for changed definitions, APIs, or limits.
 
 Commit compiled `impact_ledger/static/app.js` and `model.js` with their TypeScript changes so Python package installs work without Node. `site/` is reproducible build output and is ignored. Do not commit databases, virtual environments, dependencies, local secrets, generated exports, or private data.
 

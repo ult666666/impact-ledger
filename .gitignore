@@ -17,3 +17,6 @@ dist/
 .DS_Store
 playwright-report/
 test-results/
+
+# Local planning notes
+docs/superpowers/
