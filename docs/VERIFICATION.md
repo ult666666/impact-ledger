@@ -2,7 +2,7 @@
 
 ## v1.2.1 — exact static payload and single workflow
 
-Verified locally on 23 October 2026 with macOS arm64, Python **3.13** and **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**, and actionlint **1.7.7**. These are local results. Independent whole-diff review, hosted Python3.11/3.13 CI, PR/non-main deploy-skip checks, main deployment and public visitor byte checks remain parent-owned shipping steps; this record does not claim hosted success for this patch.
+Verified locally on 23 October 2026 with macOS arm64, Python **3.13** and **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**, and actionlint **1.7.7**. These are local results. Independent whole-diff review, hosted Python 3.11/3.13 CI, PR/non-main deploy-skip checks, main deployment and public visitor byte checks remain parent-owned shipping steps; this record does not claim hosted success for this patch.
 
 | Command / journey | Observed result |
 | --- | --- |
@@ -12,7 +12,7 @@ Verified locally on 23 October 2026 with macOS arm64, Python **3.13** and **3.15
 | `npm run typecheck` / `npm run build` | Strict TypeScript and exact static build passed; committed browser assets unchanged |
 | `npm test` / `npm run test:browser` | **13 model tests** and **19 real Chromium journeys passed**, including local/static repository-subpath flows and existing preview/comparison/print contracts |
 | `python3 scripts/build_site.py --verify-only` after browser checks | Seven actual files matched expected bytes; bounded JSON byte/SHA-256 receipt; no rebuild after browser tests |
-| Fresh Python3.13 environment, `pip wheel --no-deps`, install **impact_ledger-1.2.1-py3-none-any.whl**, then installed interpreter `scripts/verify_package.py` | Outside-checkout console CLI/API/WAL/real import and exact packaged assets passed; actual selected builder/verifier output matched all installed assets and installed seeded snapshot bytes |
+| Fresh Python 3.13 environment, `pip wheel --no-deps`, install **impact_ledger-1.2.1-py3-none-any.whl**, then installed interpreter `scripts/verify_package.py` | Outside-checkout console CLI/API/WAL/real import and exact packaged assets passed; actual selected builder/verifier output matched all installed assets and installed seeded snapshot bytes |
 | `actionlint` 1.7.7 / `git diff --check` | Workflow syntax/expression validation and whitespace checks passed |
 | Base comparison for business/API/frontend/fixtures | No changes to store, shared CSV validator, HTTP/CLI runtime, TypeScript, compiled HTML/JS/CSS/icon, examples or calculation oracles |
 
@@ -30,7 +30,7 @@ Review of `a44c5d5` reproduced two preflight bypasses in isolated synthetic path
 
 Before the repair, two new subprocess methods failed in **eight build subcases** across both bypasses, absolute/relative Unicode/spaced spellings and single/nested missing components. Verification counterparts already failed closed without target changes; their `missing_output` receipts are preserved rather than claiming a new verifier safety failure. A third method checks ordinary missing parents in both modes with the same spelling variants. After the repair all **20 static methods** and **73 full Python tests** pass on Python **3.13.7** and **3.15.0**, with resource warnings treated as errors. Target bytes, entries, inode identities and mtimes remain unchanged on refusal. The original standalone review repro now reports both `contract_violated: false` cases, unchanged marker/old JS, an empty unselected directory, and controlled build `io_error` receipts.
 
-Fresh `npm run typecheck`, build, **13 model tests**, **19 real Chromium journeys**, and the post-browser exact verifier pass. A fresh Python3.13 environment built/installed the final **1.2.1** wheel, passed the outside-checkout CLI/API/WAL/asset/seed parity verifier and `pip check`. All seven generated payload bytes remain identical to the original release; business/API/TypeScript/compiled assets and workflow guards are unchanged. Actionlint and whitespace checks pass. These are local repair results; parent re-review, remote push and hosted shipping checks remain separate.
+Fresh `npm run typecheck`, build, **13 model tests**, **19 real Chromium journeys**, and the post-browser exact verifier pass. A fresh Python 3.13 environment built/installed the final **1.2.1** wheel, passed the outside-checkout CLI/API/WAL/asset/seed parity verifier and `pip check`. All seven generated payload bytes remain identical to the original release; business/API/TypeScript/compiled assets and workflow guards are unchanged. Actionlint and whitespace checks pass. These are local repair results; parent re-review, remote push and hosted shipping checks remain separate.
 
 ## v1.2.0 — read-only CSV import preview
 

@@ -37,7 +37,7 @@ python3 -m venv .local/venv
 - Apply inclusive date and program filters to every metric, chart, table, and export.
 - Count people distinctly across selected sessions, attendance once per person/session, and spending once per session.
 - Opt in to **Compare prior period** for an explicit applied start/end date range. The previous window has the same number of calendar days and uses the same program. Both windows show totals and signed deltas; people can recur in both.
-- Choose **Print report** for a synthetic stakeholder report with applied filters, all current totals, charts, tables, and comparison when enabled. Browser print settings can save a PDF. The button explains and blocks unfinished views/import refreshes or enabled comparisons still loading; a completed unavailable comparison prints its reason.
+- Choose **Print report** for a synthetic stakeholder report with applied filters, all current totals, charts, tables, and comparison when enabled. Browser print settings can save a PDF. Printing waits until the view, any import refresh and any enabled comparison have finished loading, and the button says what it is waiting for. If a finished comparison is unavailable, the report prints the reason.
 - Compare actual and budget in USD. Percent variance uses budget as denominator and is undefined at zero budget.
 - Open the exact accessible tables under both charts; use a keyboard to navigate the session table on small screens.
 - Optionally choose **Preview CSV** before import to review row/column errors against the current local ledger. Preview adds no rows or reservations; file/type changes clear it. [Preview example](docs/screenshots/import-preview.png).
@@ -90,7 +90,7 @@ npm run test:browser
 python3 scripts/build_site.py --verify-only
 ```
 
-On Linux, use `npx playwright install --with-deps chromium` to install browser system libraries. Tests use temporary local databases and launch real loopback HTTP services. Browser checks exercise both local and static modes and save desktop/mobile screenshots under `docs/screenshots/`.
+On Linux, use `npx playwright install --with-deps chromium` to install browser system libraries. Tests use temporary local databases and launch real loopback HTTP services. Browser checks exercise both local and static modes and save screenshots under the git-ignored `test-results/screenshots/`. To refresh the committed images in `docs/screenshots/`, run `IMPACT_LEDGER_UPDATE_SCREENSHOTS=1 npm run test:browser`.
 
 ## Static preview
 
@@ -107,9 +107,13 @@ python3 scripts/build_site.py --output-directory '/tmp/impact preview'
 python3 scripts/build_site.py --output-directory '/tmp/impact preview' --verify-only
 ```
 
-The payload is exactly seven regular files: `index.html`, `app.js`, `model.js`, `styles.css`, `favicon.svg`, `demo.json`, and empty `.nojekyll`. The builder refuses a selected output symlink, source/output overlap, unknown entries, and symlink or nonregular generated entries **before writing anything to the target**. A known output can be rebuilt: missing or changed regular generated files are replaced, while an unknown file/folder must be moved by its owner first. There is no recursive cleanup or force option. Every intermediate path component must exist, including components traversed before `..`; only the final output directory may be missing. Trusted existing ancestor directory aliases are canonicalized; the selected destination itself cannot be a symlink.
+The payload is exactly seven regular files: `index.html`, `app.js`, `model.js`, `styles.css`, `favicon.svg`, `demo.json`, and an empty `.nojekyll`.
 
-`--verify-only` compares actual output with source assets, the static-mode HTML shell, and unchanged deterministic seed bytes. It returns a bounded JSON receipt with seven byte counts/SHA-256 digests on success; failures contain stable codes and only known payload filenames. Exit codes are **0** exact, **1** boundary/content/I/O failure, **2** argument usage error. It never repairs the selected output or creates missing output paths. Generating expected synthetic data uses a separate private temporary SQLite database; “read-only” applies to the selected target. Reads may update filesystem access times. Builds stage private files and atomically replace each generated name so existing hard links cannot overwrite an unselected file; the whole directory is not an atomic transaction. Ordinary failures clean owned temporaries. Concurrent path manipulation and power-loss recovery are outside this local build contract.
+- The builder refuses unsafe output paths and never deletes unknown files. Move an unknown file or folder out of the output directory yourself; there is no force option.
+- A rebuild replaces only missing or changed generated files.
+- `--verify-only` checks an existing output without changing it. It prints a JSON receipt of byte counts and SHA-256 digests and exits **0** on an exact match, **1** on any mismatch or I/O failure, and **2** on a usage error.
+
+The [architecture notes](docs/ARCHITECTURE.md#read-only-static-mode) give the full path, verification and atomic-replacement rules.
 
 The single [CI and Pages workflow](.github/workflows/ci.yml) runs the Python matrix and one frontend build/model/Chromium path. After browser checks it verifies the same `site/` bytes, then uploads only on non-PR `main`. Deployment needs both test jobs and consumes that run's tested artifact. PRs and non-main manual runs get all tests and skip publication. Only the gated deploy job has Pages/token write permissions; concurrency is scoped by ref. Screenshot artifacts expire after seven days. Repository Pages must already use GitHub Actions. No Python write API, databases, import CSVs, dependencies, wheels, or local reports are in the payload.
 

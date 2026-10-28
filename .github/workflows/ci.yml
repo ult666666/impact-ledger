@@ -62,7 +62,7 @@ jobs:
         if: always()
         with:
           name: dashboard-screenshots
-          path: docs/screenshots/*.png
+          path: test-results/screenshots/*.png
           retention-days: 7
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

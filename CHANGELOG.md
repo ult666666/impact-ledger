@@ -4,7 +4,7 @@
 
 - Refuse unexpected output entries, selected/file symlinks, nonregular entries and source/output overlap before target writes. Rebuild known generated files with private staging and per-file atomic replacement, preserving unselected hardlink originals.
 - Add `scripts/build_site.py --output-directory PATH --verify-only`: compare the actual seven-file payload with committed assets/static shell/unchanged synthetic seed, return bounded JSON byte/SHA-256 receipts and controlled failure codes, and never repair the selected target.
-- Consolidate CI/Pages into one workflow. Verify the browser-tested directory before main-only upload; same-workflow deploy needs both Python and frontend tests, owns the Pages/token write permissions, and uses ref-scoped concurrency. PR/non-main runs skip publication. Pin Ubuntu24.04 explicitly and retain screenshots for seven days.
+- Consolidate CI/Pages into one workflow. Verify the browser-tested directory before main-only upload; same-workflow deploy needs both Python and frontend tests, owns the Pages/token write permissions, and uses ref-scoped concurrency. PR/non-main runs skip publication. Pin Ubuntu 24.04 explicitly and retain screenshots for seven days.
 - Keep API, business rules, visible synthetic data, browser assets, comparison/import-preview/print behavior and historical release records unchanged. Target-only read semantics and non-atomic directory/concurrent-path limits are documented. [Local verification](docs/VERIFICATION.md#v121--exact-static-payload-and-single-workflow).
 
 ## 1.2.0 — advisory CSV import preview
