@@ -7,6 +7,11 @@ Run `python3 -m impact_ledger --db .local/demo.db serve` and use the printed loo
 | Initialize an empty ledger | `impact-ledger --db ledger.db init` | Start an initialized Store locally |
 | Advisory preview | `impact-ledger --db ledger.db preview-import sessions sessions.csv` | `POST /api/import/preview?kind=sessions` |
 | Atomic append | `impact-ledger --db ledger.db import sessions sessions.csv` | `POST /api/import?kind=sessions` |
+| Correct or delete one record | `update-session`, `update-attendance`, `delete-session`, `delete-attendance` | Not exposed over HTTP |
+| Undo one CSV import | `impact-ledger --db ledger.db undo-import B000379` | Not exposed over HTTP |
+| List audit batches | `impact-ledger --db ledger.db history --limit 20` | `GET /api/history?limit=20` |
+| Verify the audit log | `impact-ledger --db ledger.db verify [--expect-head HASH]` | `GET /api/verify?expect_head=HASH` |
+| Report as of a past point | `summary --as-of 2026-09-30` or `--as-of-entry 378` | `GET /api/summary?as_of=2026-09-30` or `?as_of_entry=378` |
 
 Use `attendance` instead of `sessions` for the second schema. Both routes accept raw `text/csv; charset=utf-8`, with one valid Content-Length and at most 1 MiB. CSV headers, field rules and 5,000-record limit are in the [data dictionary](DATA_DICTIONARY.md). The same Host/Origin, transfer encoding, timeout and content-type protections apply. Unsupported methods return 405. Unknown/repeated query parameters and invalid kinds return 400.
 
@@ -45,4 +50,19 @@ Preview requires an existing initialized database. CLI preview never creates a m
 
 Preview performs only read-only SQL in a consistent transaction. It adds no ledger rows or schema, executes no data-changing triggers, reserves no IDs and never initializes a missing database. SQLite may still manage locking and WAL auxiliary files (including `-wal`/`-shm`) in an existing ledger directory, even with `mode=ro`. This SQL read-only contract does not promise that every filesystem directory entry stays unchanged. Live WAL snapshots remain supported; the application neither deletes sidecars nor uses immutable-mode reads to suppress SQLite locking. It is optional and advisory; the database can change after it returns. Import accepts CSV bytes again, revalidates under its own write transaction, and relies on database constraints as the final guard. A valid preview can therefore be followed by an atomic rejection if another import uses an ID.
 
-Successful import remains **201** with `{"kind":"sessions","imported":1}`. Invalid CSV is **400** with `{"error":"readable message; no rows added"}`; that example describes the error shape, not literal message text. It never partially succeeds. Framing/HTTP failures retain 400/403/408/411/413/415 statuses; unavailable SQLite returns 503. Static mode has no CSV API and clearly directs preview/import users to the local service.
+Successful import remains **201**, now with the audit batch ID: `{"kind":"sessions","imported":1,"batch_id":"B000379"}`. Clients that read only `kind` and `imported` are unaffected. Invalid CSV is **400** with `{"error":"readable message; no rows added"}`; that example describes the error shape, not literal message text. It never partially succeeds. Framing/HTTP failures retain 400/403/408/411/413/415 statuses; unavailable SQLite returns 503. Static mode has no CSV API and clearly directs preview/import users to the local service.
+
+## Audit history, verification and as-of reports
+
+`GET /api/history?limit=N` (1–500, default 100) returns `{"synthetic": true, "head": {"entry", "recorded_at", "hash"}, "batches": [...], "batches_total"}`. Each batch, newest first, has `batch_id`, `kind` (`baseline`, `seed`, `import`, `update`, `delete`, `undo`), `actor`, `recorded_at`, `reverts`, `first_entry`, `last_entry`, `entries`, `created`, `updated`, `deleted` and `undone_by`.
+
+`GET /api/verify` returns `{"valid", "entries", "batches", "head", "protections", "problems", "problems_total"}`. Each problem has `entry` (or null), `code` and `message`; at most 100 are listed. Codes are defined in the [architecture notes](ARCHITECTURE.md#audit-history-and-as-of-reports). `expect_head` must be a 64-character lowercase hex digest. The CLI prints the same JSON and exits 0 when valid, 1 with problems and 2 for usage or file errors.
+
+`/api/summary`, `/api/snapshot`, `/api/comparison` and `/api/export` accept either `as_of` or `as_of_entry`, not both. `as_of` is `YYYY-MM-DD` (the end of that UTC day) or a UTC timestamp such as `2026-09-30T23:59:59Z` with up to six fractional digits. `as_of_entry` is a whole number from 0 to the latest entry. JSON responses then include:
+
+```json
+{"as_of": {"requested": {"entry": 378}, "entry": 378, "recorded_at": "2026-10-01T12:00:00.000000Z", "hash": "<64 hex digits>"}}
+```
+
+`entry` 0 is the empty ledger before any write, with a digest of 64 zeros. An as-of request returns **400** if the audit log fails verification up to that entry. Without as-of parameters, responses keep their previous shape. All of these routes are read-only and keep the existing Host, method and query-parameter rules; history and verify return 405 for other methods.
+

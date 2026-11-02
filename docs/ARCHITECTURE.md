@@ -31,13 +31,41 @@ Money is stored as integer cents, and duration as integer hundredths of an hour.
 
 Preview processes bounded input, displays at most 100 diagnostics and counts all errors found within at most 5,000 checked records. A terminal parsing/size/row-limit error is file-level and remains visible even if the error table is full. `rows` counts checked CSV records, while each row diagnostic identifies the physical starting line of that record, accounting for quoted newlines. All messages describe rules without echoing file values. See the [API response and codes](API.md).
 
-Imports append. They do not update or delete existing records. Sessions must be imported before referencing attendance. There is no partial-success mode. The CLI and HTTP API both call this path. Exports reuse the same inclusive session filters as summaries and produce the original import schema.
+Imports append rows; corrections and deletions are separate audited commands. Sessions must be imported before referencing attendance. There is no partial-success mode. The CLI and HTTP API both call this path. Exports reuse the same inclusive session filters as summaries and produce the original import schema.
+
+## Audit history and as-of reports
+
+`impact_ledger/audit.py` owns the append-only log. Every write method in `store.py` (seed, CSV import, `update_session`, `update_attendance`, `delete_session`, `delete_attendance`, `undo_import`) changes the tables and appends its audit entries inside one `BEGIN IMMEDIATE` transaction, so a change and its history commit or roll back together. A rejected write records nothing.
+
+| Column | Meaning |
+| --- | --- |
+| `seq` | Entry number, 1, 2, 3 … with no gaps |
+| `recorded_at` | UTC time with microseconds, `YYYY-MM-DDTHH:MM:SS.ffffffZ`. One time per batch, never earlier than the previous entry, even if the clock moves back |
+| `actor` | Self-declared label, 1–64 characters (`--actor`, `local-cli`, `local-web`, `seed`, `migration`) |
+| `batch_id`, `batch_kind`, `reverts` | `B` plus the batch's first entry number (`B000379`); `baseline`, `seed`, `import`, `update`, `delete` or `undo`; for an undo, the batch it reverses |
+| `operation`, `entity`, `entity_id` | `create`, `update` or `delete` of one `session` or `attendance` row |
+| `before`, `after` | The complete row in integer units as canonical JSON (sorted keys, no spaces), or null for a create or delete |
+| `prev_hash`, `entry_hash` | SHA-256 of the previous entry (64 zeros for the first) and of this entry's fields |
+
+`entry_hash` is the SHA-256 of a JSON array of the twelve other fields in a fixed order, so it covers `prev_hash` and every entry depends on all earlier ones. This is the hash chain of [Schneier and Kelsey, "Secure Audit Logs to Support Computer Forensics" (ACM TISSEC, 1999)](https://doi.org/10.1145/317087.317089) without their secret, evolving keys: anyone who can write the file can recompute every digest, so `verify --expect-head` compares the head with a digest saved elsewhere. [Crosby and Wallach (USENIX Security 2009)](https://www.usenix.org/legacy/event/sec09/tech/full_papers/crosby.pdf) discuss why a log needs such external commitments to detect truncation. Three SQLite [triggers](https://www.sqlite.org/lang_createtrigger.html) reject `UPDATE` and `DELETE` on `audit_log`, and any insert whose `seq`, `prev_hash` or time does not extend the chain. SQLite cannot compute SHA-256 in a trigger, so the digest itself is checked by `verify`, not on insert.
+
+`Store.verify(expect_head=None)` opens a read-only connection and reports problems by code: `protection_removed` (a trigger is missing), `sequence_gap`, `chain_break`, `hash_mismatch`, `time_order`, `batch_structure` (a batch's entries are not contiguous or disagree on time, actor or kind), `invalid_transition` (a replayed create, update or delete does not match the state it changes, or breaks a session reference), `state_mismatch` (a table differs from the replayed log, so it was changed outside the log), `head_mismatch` and `no_history`. An edit, deletion or reordering of entries changes at least one digest or link.
+
+**As-of reports replay the log.** `summary`, `snapshot`, `comparison` and `export_csv` accept `as_of` (a UTC timestamp, or a date meaning the end of that UTC day) or `as_of_entry`. The store resolves either to the last entry recorded at or before that point, checks digests and links for that prefix, replays it into memory and then runs the same filtering and accounting as the current-table path. Batches share one timestamp, so a timestamp never splits a batch. Responses gain an `as_of` block naming the entry, its time and digest; without these parameters responses are unchanged.
+
+We chose reconstruction from the log over valid-time columns on the ledger tables (a `valid_from`/`valid_to` pair per row version, as in SQL:2011 system-versioned tables). Valid-time columns make past queries as fast as current ones, but they create a second copy of history that every write must keep consistent with the log, and that copy would need its own protection. Replaying the log means the record a grant report cites is the same record `verify` checks, and an as-of report refuses to run over a prefix that fails verification. The cost is time proportional to the log: on a 25,000-entry synthetic ledger, a summary as of the latest entry took 315 ms against 68 ms from the current tables, and `verify` took 328 ms (`python3 scripts/benchmark_history.py`). A much larger ledger would need checkpoints: a stored, digest-bound snapshot every N entries from which replay can start.
+
+**Undo is a compensating batch.** `undo_import(batch_id)` reads the import's entries, requires every created row to still exist with exactly its imported values and, for sessions, no attendance to reference them, then deletes those rows and appends `delete` entries with `reverts` set. Undo is refused for non-import batches and for a batch already undone. Nothing in the log is removed, so reports as of any earlier entry still show the imported rows.
+
+**Schema versions.** The ledger stores its schema version in `PRAGMA user_version`. Version 0 is the 1.2.x layout without a log. On first open, the store creates the log and triggers, records every existing row as one `baseline` batch by actor `migration`, and sets version 1, all in one transaction. History before the baseline is unknown. A ledger with a version above 1 is refused. Read-only CSV preview opens a ledger without migrating it.
 
 ## Browser architecture
 
 `web/src/app.ts` uses typed API responses, native HTML forms, DOM text nodes, SVG charts, and accessible HTML tables. There is no React, UI library, CDN script, remote font, or browser runtime package. TypeScript 5.9.3 compiles into the Python package's `static/` directory. Compiled JavaScript is committed so a wheel or source install can serve the dashboard without Node.
 
 The browser holds draft form inputs, the latest submitted filter intent, and the last completed applied view separately. Downloads, comparisons, and print reports correspond to the applied view. Comparison has its own request revision, clears during filter refresh or a failed update, and explains missing dates. Successful imports reload the latest submitted filters, including an Apply request still in flight; their automatic refresh cannot replace a newer submitted intent with the older completed view. Draft edits remain unapplied. A request revision prevents a slower prior filter response from replacing a newer view. Import errors are presented without clearing the file or claiming rows were saved. An imported file refreshes metadata; existing date filters still apply until reset. Optional CSV previews have a separate request revision: file/kind changes clear diagnostics and invalidate delayed responses. Import clears preview and submits the file again through the normal atomic import endpoint. Preview never changes filter, summary, comparison or print state.
+
+The **Ledger version** select lists the 200 most recent batches from `GET /api/history` and is part of the applied filters, so summary, comparison, export and print use the same audit entry. Selecting a version and choosing Apply filters requests `as_of_entry`; the status line and print header name the entry and digest. Static mode disables the control, because the bundled snapshot has no history.
 
 Charts are accompanied by exact-value tables. Empty selections display zero activity and undefined ratios. The mobile session table has its own scroll container so the document itself does not overflow. Labels are rendered with `textContent`/text nodes; CSV text is never assigned to `innerHTML`.
 
@@ -61,11 +89,13 @@ All successful JSON responses include `synthetic: true` where applicable; curren
 | --- | --- | --- |
 | GET | `/api/health` | Local health, no database path |
 | GET | `/api/meta` | All-program list, date bounds, session/attendance counts, import limits |
-| GET | `/api/summary?start=&end=&program=` | Totals, per-program and monthly aggregates, session ledger |
-| GET | `/api/comparison?start=YYYY-MM-DD&end=YYYY-MM-DD&program=` | Explicit inclusive dates required; current and immediately preceding equal-day totals and signed deltas |
-| GET | `/api/snapshot?start=&end=&program=` | Synthetic session rows, integer units, participant/attendance IDs |
-| GET | `/api/export?kind=sessions\|attendance&start=&end=&program=` | Filtered attachment in import CSV schema |
-| POST | `/api/import?kind=sessions\|attendance` | Append UTF-8 `text/csv`; successful response is 201 with kind/imported count |
+| GET | `/api/summary?start=&end=&program=&as_of=&as_of_entry=` | Totals, per-program and monthly aggregates, session ledger; optionally as of an audit entry |
+| GET | `/api/comparison?start=YYYY-MM-DD&end=YYYY-MM-DD&program=&as_of=&as_of_entry=` | Explicit inclusive dates required; current and immediately preceding equal-day totals and signed deltas |
+| GET | `/api/snapshot?start=&end=&program=&as_of=&as_of_entry=` | Synthetic session rows, integer units, participant/attendance IDs |
+| GET | `/api/export?kind=sessions\|attendance&start=&end=&program=&as_of=&as_of_entry=` | Filtered attachment in import CSV schema, optionally as of an audit entry |
+| GET | `/api/history?limit=1..500` | Audit batches, newest first, with the head entry and digest (default limit 100) |
+| GET | `/api/verify?expect_head=` | Read-only chain, trigger, replay and table verification report |
+| POST | `/api/import?kind=sessions\|attendance` | Append UTF-8 `text/csv`; successful response is 201 with kind, imported count and audit batch ID |
 | POST | `/api/import/preview?kind=sessions\|attendance` | Read-only advisory diagnostics; valid and invalid CSV return 200, with bounded errors |
 | GET | `/`, `/app.js`, `/model.js`, `/styles.css`, `/favicon.svg` | Explicit static asset allowlist |
 
@@ -105,7 +135,7 @@ These controls do not make a production service. Thread count, database growth, 
 - Participant IDs are fictional pseudonyms, not identity resolution. Reusing or changing an ID changes reach totals.
 - Full-session attendance is assumed. Participant hours do not measure attention, quality, or benefit.
 - There is no invited/eligible/capacity denominator, so an attendance **rate** cannot be computed.
-- Costs are direct amounts assigned to selected sessions. There is no chart of accounts, restricted-fund accounting, overhead allocation, currency conversion, or audit history.
+- Costs are direct amounts assigned to selected sessions. There is no chart of accounts, restricted-fund accounting, overhead allocation or currency conversion. The audit log records who changed what and when; it does not approve changes or authenticate actors.
 - A person can appear in multiple programs/months; distinct-person subtotals are not additive.
 - Monthly charts include months that have selected sessions, rather than filling missing calendar months with inferred activity.
 - Spending differences do not explain causes or signal program effectiveness. There are no outcome data or counterfactuals.

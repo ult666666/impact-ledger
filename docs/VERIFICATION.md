@@ -1,5 +1,34 @@
 # Verification record
 
+## Unreleased: audit history, as-of reports and undo
+
+Verified locally on 2 November 2026 on Linux x86_64 with Python **3.13.17** and **3.11.17**, Node **24.22.1**, TypeScript **5.9.3** and Playwright **1.61.1**. Browser downloads were blocked in that environment, so Playwright drove a preinstalled Chromium 153 build through a `PLAYWRIGHT_BROWSERS_PATH` alias; CI uses Playwright's own Chromium. These are local results.
+
+| Command / journey | Observed result |
+| --- | --- |
+| `python3 -W error::ResourceWarning -m unittest discover -s tests` | **91 passed** (73 existing, 18 new); no resource warnings |
+| `uv run --no-project --python 3.11 python -m unittest discover -s tests` | **91 passed** on Python 3.11 |
+| `npm run typecheck` / `npm run build` | Passed; `model.js` and `demo.json` bytes unchanged |
+| `npm test` / `npm run test:browser` | **13 model tests** and **20 Chromium journeys** passed, including the new keyboard-operated Ledger version journey in local and static modes |
+| `python3 scripts/build_site.py --verify-only` after browser checks | Seven files matched |
+| `python scripts/verify_package.py` in a fresh virtual environment after `pip install .` | Installed wheel verified, including the import response's new `batch_id` |
+| `python3 scripts/benchmark_history.py` | 25,000-entry synthetic ledger: summary from current tables 68 ms, as of the latest entry 315 ms, as of half the log 182 ms, `verify` 328 ms (best of three) |
+
+The property test (`tests/test_temporal.py`) runs 12 random sequences of 26 operations: session and attendance imports, corrections, deletions, refused writes and undo attempts, with clock steps of 0 s, 1 s, 2 s, 3 s or 1 hour. A model kept by the test, independent of the audit log, predicts each result. For every recorded time, the microsecond before it and a date before any write, the summary, snapshot, both CSV exports and comparison as of that time must equal the reports of a fresh ledger loaded with the model state through ordinary imports. Each resolved entry must be a batch boundary.
+
+Tamper tests (`tests/test_audit.py`, `tests/test_cli.py`) show that triggers block `UPDATE`, `DELETE`, `INSERT OR REPLACE`, upserts and each kind of out-of-order insert, and that `verify` flags an edited, deleted or reordered entry, dropped triggers, table edits outside the log and forged entries whose digests are valid but whose transitions are not. A truncated or fully rewritten chain passes the chain checks, as documented, and fails with `--expect-head`.
+
+Mutation checks ran in a scratch copy, one change at a time. Each was rejected:
+
+| Deliberate defect | Rejected by |
+| --- | --- |
+| Replay ignores updates; as-of excludes entries recorded exactly at the requested time; past attendance not sorted by ID | Property test |
+| Undo skips the changed-row check | Undo test |
+| Verify skips digest recomputation; verify skips the table comparison | Tamper tests |
+| Delete trigger removed; insert trigger accepts any entry number | Trigger tests |
+| Past reports skip the chain check | Prefix-verification test |
+| Import writes no audit entries | Audit write tests |
+
 ## v1.2.1 — exact static payload and single workflow
 
 Verified locally on 23 October 2026 with macOS arm64, Python **3.13** and **3.15.0**, Node **24.18.0**, npm **11.16.0**, TypeScript **5.9.3**, Playwright **1.61.1** / Chromium headless shell **1228**, and actionlint **1.7.7**. These are local results. Independent whole-diff review, hosted Python 3.11/3.13 CI, PR/non-main deploy-skip checks, main deployment and public visitor byte checks remain parent-owned shipping steps; this record does not claim hosted success for this patch.

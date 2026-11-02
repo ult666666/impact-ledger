@@ -14,6 +14,7 @@ const isStatic = document.documentElement.dataset.mode === 'static';
 const colors = ['#718b59', '#365e4c', '#b5bf88', '#879d7a', '#768f95'];
 let snapshot = null;
 let metadata = null;
+let history = null;
 let appliedFilters = {};
 let submittedFilters = {};
 let summaryState = 'pending';
@@ -115,7 +116,35 @@ function readFilters() {
     const end = element('end-date').value;
     if (start && end && start > end)
         throw new Error('Start date must be on or before end date.');
-    return { start: start || null, end: end || null, program: element('program-filter').value || null };
+    const asOf = isStatic ? '' : element('as-of-entry').value;
+    return { start: start || null, end: end || null, program: element('program-filter').value || null, as_of_entry: asOf || null };
+}
+const utcLabel = (value) => `${value.slice(0, 10)} ${value.slice(11, 19)} UTC`;
+function versionLabel(batch) {
+    const change = {
+        baseline: `baseline of ${number(batch.created)} records`, seed: `demo seed, ${number(batch.created)} records`,
+        import: `import, ${number(batch.created)} added`, update: 'correction', delete: 'deletion',
+        undo: `undo of ${batch.reverts ?? 'an import'}, ${number(batch.deleted)} removed`,
+    }[batch.kind];
+    return `After ${batch.batch_id} · ${change} · ${utcLabel(batch.recorded_at)}${batch.undone_by ? ` · undone by ${batch.undone_by}` : ''}`;
+}
+async function loadHistory() {
+    const select = element('as-of-entry');
+    if (isStatic) {
+        select.disabled = true;
+        setText('as-of-help', 'Ledger history needs the local service. This static preview shows one fixed synthetic snapshot.');
+        return;
+    }
+    history = await json('./api/history?limit=200');
+    const selected = select.value;
+    select.replaceChildren(new Option(`Latest · ledger entry ${number(history.head.entry)}`, ''));
+    // The newest batch is the latest state, so it is already the first option.
+    for (const batch of history.batches.slice(1))
+        select.add(new Option(versionLabel(batch), String(batch.last_entry)));
+    select.value = [...select.options].some(option => option.value === selected) ? selected : '';
+    setText('as-of-help', history.batches_total > history.batches.length
+        ? `Rebuild every report from the verified audit log as it stood after an earlier change. The ${number(history.batches.length)} most recent changes are listed.`
+        : 'Rebuild every report from the verified audit log as it stood after an earlier change.');
 }
 function showError(error) {
     setText('app-error', error instanceof Error ? error.message : 'Something went wrong. Please try again.');
@@ -205,7 +234,8 @@ function renderPrograms(summary) {
 }
 function render(summary) {
     const totals = summary.totals;
-    setText('report-filters', `Applied filters · ${summary.filters.start ?? 'Unbounded start'} – ${summary.filters.end ?? 'Unbounded end'} · ${summary.filters.program ?? 'All programs'}`);
+    const version = summary.as_of ? ` · Ledger as of entry ${number(summary.as_of.entry)}${summary.as_of.recorded_at ? `, ${utcLabel(summary.as_of.recorded_at)}` : ''} (SHA-256 ${summary.as_of.hash.slice(0, 12)}…)` : '';
+    setText('report-filters', `Applied filters · ${summary.filters.start ?? 'Unbounded start'} – ${summary.filters.end ?? 'Unbounded end'} · ${summary.filters.program ?? 'All programs'}${version}`);
     renderReportTotals(totals);
     setText('metric-unique', number(totals.unique_participants));
     setText('metric-attendance', number(totals.attendance));
@@ -223,7 +253,7 @@ function render(summary) {
     const end = summary.filters.end ?? metadata?.end;
     setText('reporting-window', start && end ? `${dateLabel(start)} – ${dateLabel(end)}` : 'All recorded dates');
     setText('filter-count', `${number(summary.programs.length)} programs · ${number(totals.sessions)} sessions`);
-    setText('app-status', `Showing ${number(totals.sessions)} synthetic sessions${summary.filters.program ? ' · ' + summary.filters.program : ' across all programs'}.`);
+    setText('app-status', `Showing ${number(totals.sessions)} synthetic sessions${summary.filters.program ? ' · ' + summary.filters.program : ' across all programs'}${summary.as_of ? ` as recorded through ledger entry ${number(summary.as_of.entry)}` : ''}.`);
     setText('ledger-count', `${number(totals.sessions)} sessions in this view`);
     element('empty-state').hidden = totals.sessions !== 0;
     element('chart-grid').hidden = totals.sessions === 0;
@@ -282,6 +312,7 @@ function resetFilters() {
     element('start-date').value = metadata?.start ?? '';
     element('end-date').value = metadata?.end ?? '';
     element('program-filter').value = '';
+    element('as-of-entry').value = '';
     void refresh();
 }
 function downloadBlob(content, filename) {
@@ -392,6 +423,7 @@ async function importCSV() {
         status.textContent = `${result.imported} ${kind} imported. Current filters still apply; reset filters to view all dates.`;
         fileInput.value = '';
         await loadMetadata();
+        await loadHistory();
         await refresh({ ...submittedFilters });
     }
     catch (error) {
@@ -451,6 +483,7 @@ async function start() {
         snapshot = await json('./demo.json');
     }
     await loadMetadata();
+    await loadHistory();
     resetFilters();
 }
 void start().catch(error => { summaryState = 'error'; updateReportReadiness(); showError(error); setText('app-status', 'Unable to load the workspace. Start the local service or rebuild the static preview.'); });

@@ -44,6 +44,7 @@ python3 -m venv .local/venv
 - Import UTF-8 CSV atomically. Files with bad headers, invalid dates/amounts, duplicate IDs, missing session references, or excess size/rows add **nothing**.
 - Export both session and attendance CSVs for the **applied** filters. Edits in the form take effect when you choose Apply filters. Import completion reloads the latest submitted filters, including a request still loading, without applying draft edits.
 - Try an empty date range: the interface reports zero activity rather than substituting demo totals.
+- Choose an earlier **Ledger version** to rebuild every total, chart, table, comparison, export and print report from the audit log as it stood after that change. The status line and print report name the audit entry and its SHA-256 digest, so a past report can be reproduced exactly.
 
 Comparison requires both explicit dates. Set them and choose Apply filters if a visible message requests them. A 2026-09-01 through 2026-09-30 current window compares with 2026-08-02 through 2026-08-31, not the previous calendar month. Empty windows show zeros. Signed changes describe activity; lower variance alone does not establish improvement. [Comparison and print example](docs/screenshots/print-report.png).
 
@@ -74,6 +75,27 @@ attendance_id,session_id,participant_id
 ```
 
 Dates use `YYYY-MM-DD`. Hours and USD amounts accept at most two decimal places; exponent notation, negatives, NaN, and infinity are rejected. One import is limited to **1 MiB and 5,000 data rows**. See the [data dictionary](docs/DATA_DICTIONARY.md) for bounds and definitions.
+
+## Audit history, past reports and undo
+
+Every write appends to a hash-chained audit log in the same SQLite transaction: seeding, each CSV import, and the corrections below. An entry records the actor label, a UTC timestamp, the entity and ID, the row before and after the write in integer units, its batch ID, and the SHA-256 digest of the previous entry. SQLite triggers reject `UPDATE` and `DELETE` on the log and any insert that does not extend the chain in order.
+
+```sh
+python3 -m impact_ledger --db .local/demo.db --actor analyst update-session demo-s01-1 --actual 190.50
+python3 -m impact_ledger --db .local/demo.db delete-attendance demo-s01-1-a01
+python3 -m impact_ledger --db .local/demo.db history --limit 5
+python3 -m impact_ledger --db .local/demo.db summary --as-of 2026-09-30
+python3 -m impact_ledger --db .local/demo.db summary --as-of-entry 378
+python3 -m impact_ledger --db .local/demo.db undo-import B000379
+python3 -m impact_ledger --db .local/demo.db verify --expect-head <hash saved from an earlier verify>
+```
+
+- `--as-of` takes a UTC timestamp ending in `Z`, or a date meaning the end of that UTC day. `--as-of-entry` names an audit entry. Both rebuild the report by replaying the log after checking its digests, and the response includes an `as_of` block with the entry number and digest. The same options work for `comparison` and `export`, and as `as_of`/`as_of_entry` query parameters in the API.
+- `undo-import BATCH` reverses one CSV import with a compensating batch of deletes. It refuses if a row from that import changed since, or if other records depend on it. History is never deleted.
+- `verify` exits **0** when the chain, its triggers, every replayed transition and the current tables agree, **1** with a list of problems otherwise, and **2** for usage or file errors. Save the printed head digest outside the ledger: with `--expect-head`, verify also detects a truncated or fully rewritten log.
+- Ledgers created by 1.2.x are upgraded on first open: their existing rows become one `baseline` batch. Changes made before that point have no history.
+
+The actor is a self-declared label (`--actor`, default `local-cli`; web imports use `local-web`), not an authenticated identity. See [what the log does and does not protect](SECURITY.md) and the [design](docs/ARCHITECTURE.md#audit-history-and-as-of-reports).
 
 ## Rebuild and test
 
@@ -121,7 +143,7 @@ The single [CI and Pages workflow](.github/workflows/ci.yml) runs the Python mat
 
 Built to make data-to-stakeholder handoffs inspectable: strict inputs, explicit denominators, recoverable errors, and bilingual examples. There are no external integrations, provider calls, credentials, analytics beacons, or paid services. The interface loads no third-party assets.
 
-This is **not a production case-management or accounting system**. No authentication, audit history, real eligibility population, outcomes, capacity, partial-attendance tracking, backup management, or causal identification is implemented. Session costs are direct session amounts, not organization-wide expenditures. Do not import private or real participant records. See [limitations and architecture](docs/ARCHITECTURE.md) and [security policy](SECURITY.md).
+This is **not a production case-management or accounting system**. No authentication, real eligibility population, outcomes, capacity, partial-attendance tracking, backup management, or causal identification is implemented. The audit history is tamper-evident, not tamper-proof: anyone who can edit the database file can rewrite it, and only a head digest saved elsewhere reveals a consistent rewrite. Actor labels are not authenticated. Past reports replay the log, so they take longer as history grows: on a 25,000-entry synthetic ledger, a summary as of the latest entry took 315 ms against 68 ms from the current tables (`python3 scripts/benchmark_history.py`). Session costs are direct session amounts, not organization-wide expenditures. Do not import private or real participant records. See [limitations and architecture](docs/ARCHITECTURE.md) and [security policy](SECURITY.md).
 
 The implementation was developed with AI assistance. Automated checks and a rendered browser review cover the scope recorded in [VERIFICATION.md](docs/VERIFICATION.md); they do not replace independent human review or establish real-world impact.
 
