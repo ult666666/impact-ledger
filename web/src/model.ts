@@ -1,5 +1,7 @@
 /** Exact integer accounting for the read-only static preview. */
-export interface Filters { start?: string | null; end?: string | null; program?: string | null }
+export interface Filters { start?: string | null; end?: string | null; program?: string | null; as_of_entry?: string | null }
+/** The audit-log prefix a past report was rebuilt from; present only when requested. */
+export interface AsOf { requested: {entry?: number; timestamp?: string}; entry: number; recorded_at: string | null; hash: string }
 export interface Session {
   session_id: string; program: string; session_date: string;
   duration_hundredths: number; budget_cents: number; actual_cents: number;
@@ -17,18 +19,24 @@ export interface SessionSummary {
   attendance: number; participant_hours: number; budget: number; actual: number; variance: number;
 }
 export interface Summary {
-  synthetic: true; currency: 'USD'; filters: Filters; totals: Totals;
+  synthetic: true; currency: 'USD'; filters: Filters; totals: Totals; as_of?: AsOf;
   programs: (Totals & {program: string})[];
   monthly: (Totals & {month: string})[];
   sessions: SessionSummary[];
 }
 export type ComparisonMeasure = 'sessions' | 'unique_participants' | 'attendance' | 'participant_hours' | 'session_hours' | 'budget' | 'actual' | 'variance';
 export interface Comparison {
-  synthetic: true; currency: 'USD'; filters: Filters; days: number;
+  synthetic: true; currency: 'USD'; filters: Filters; days: number; as_of?: AsOf;
   current: {start: string; end: string; totals: Totals};
   previous: {start: string; end: string; totals: Totals};
   deltas: Record<ComparisonMeasure, number>;
 }
+export interface HistoryBatch {
+  batch_id: string; kind: 'baseline' | 'seed' | 'import' | 'update' | 'delete' | 'undo'; actor: string; recorded_at: string;
+  reverts: string | null; first_entry: number; last_entry: number; entries: number;
+  created: number; updated: number; deleted: number; undone_by: string | null;
+}
+export interface History { synthetic: true; head: {entry: number; recorded_at: string | null; hash: string}; batches: HistoryBatch[]; batches_total: number }
 export interface Metadata {
   synthetic: true; currency: 'USD'; programs: string[];
   start: string | null; end: string | null; sessions: number; attendance: number;

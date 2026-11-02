@@ -201,5 +201,35 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.server.server_address[0], '127.0.0.1')
 
 
+    def test_history_verify_and_as_of_routes_are_read_only_and_validated(self):
+        status, _, body = self.request('POST', '/api/import?kind=sessions', SESSIONS.encode(), {'Content-Type': 'text/csv', 'Host': f'127.0.0.1:{self.port}'})
+        self.assertEqual((status, json.loads(body)['batch_id']), (201, 'B000001'))
+        self.store.import_csv('attendance', ATTENDANCE.encode())
+        status, _, body = self.request('GET', '/api/history?limit=1', headers={'Host': f'127.0.0.1:{self.port}'})
+        history = json.loads(body)
+        self.assertEqual((status, history['batches_total'], history['head']['entry']), (200, 2, 8))
+        self.assertEqual(history['batches'][0]['batch_id'], 'B000005')
+        status, _, body = self.request('GET', '/api/history?limit=200', headers={'Host': f'127.0.0.1:{self.port}'})
+        self.assertEqual(json.loads(body)['batches'][-1]['actor'], 'local-web')
+        status, _, body = self.request('GET', '/api/verify', headers={'Host': f'127.0.0.1:{self.port}'})
+        self.assertEqual((status, json.loads(body)['valid']), (200, True))
+        for query, expected in [('as_of_entry=4', 0), ('as_of_entry=8', 4), ('as_of=2000-01-01', 0), ('', 4)]:
+            status, _, body = self.request('GET', f'/api/summary?{query}', headers={'Host': f'127.0.0.1:{self.port}'})
+            self.assertEqual((status, json.loads(body)['totals']['attendance']), (200, expected), query)
+        status, _, body = self.request('GET', '/api/comparison?start=2026-02-01&end=2026-02-28&as_of_entry=4', headers={'Host': f'127.0.0.1:{self.port}'})
+        self.assertEqual(json.loads(body), self.store.comparison('2026-02-01', '2026-02-28', as_of_entry=4))
+        status, _, body = self.request('GET', '/api/export?kind=attendance&as_of_entry=4', headers={'Host': f'127.0.0.1:{self.port}'})
+        self.assertEqual(body, b'attendance_id,session_id,participant_id\r\n')
+        for path in ['/api/summary?as_of_entry=99', '/api/summary?as_of=yesterday', '/api/summary?as_of=2026-01-01&as_of_entry=1',
+                     '/api/history?limit=0', '/api/history?limit=501', '/api/verify?expect_head=abc', '/api/verify?debug=1']:
+            status, _, body = self.request('GET', path, headers={'Host': f'127.0.0.1:{self.port}'})
+            self.assertEqual(status, 400, path)
+            self.assertIn('error', json.loads(body))
+        for method in ['POST', 'DELETE']:
+            for path in ['/api/history', '/api/verify']:
+                self.assertEqual(self.request(method, path, headers={'Host': f'127.0.0.1:{self.port}'})[0], 405)
+        self.assertEqual(self.store.verify()['entries'], 8)
+
+
 if __name__ == '__main__':
     unittest.main()

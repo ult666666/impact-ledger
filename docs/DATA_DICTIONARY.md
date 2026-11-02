@@ -72,3 +72,21 @@ Comparison requires explicit inclusive start and end dates; summary remains usab
 `current` and `previous` each contain `start`, `end`, and the standard `totals` object. People are distinct inside each window; a returning person counts in both windows. Session spending is counted once regardless of attendance. `deltas` reports current minus previous for the first eight numeric measures above (sessions through variance), calculated in integer units before JSON conversion. Negative variance is under-budget spending; a negative variance delta alone does not mean improvement. No percentage-change fields are emitted. Empty windows have zero counts/amounts and null standard ratios when their denominator is zero.
 
 Print reports show the applied filter labels, these current totals, and comparison if enabled and available. All records remain synthetic and activity is not causal impact.
+
+## Audit log
+
+`audit_log` is written only by the application, in the same transaction as each change. It is not imported or exported as CSV.
+
+| Field | Type | Definition |
+| --- | --- | --- |
+| `seq` | integer | Entry number from 1 with no gaps |
+| `recorded_at` | text | UTC time `YYYY-MM-DDTHH:MM:SS.ffffffZ`; shared by a batch and never earlier than the previous entry |
+| `actor` | text | Self-declared label of 1–64 characters, not an authenticated identity |
+| `batch_id` | text | `B` and the six-digit number of the batch's first entry |
+| `batch_kind` | text | `baseline`, `seed`, `import`, `update`, `delete` or `undo` |
+| `reverts` | text or null | For an undo, the import batch it reverses |
+| `operation` | text | `create`, `update` or `delete` |
+| `entity`, `entity_id` | text | `session` or `attendance`, and that row's ID |
+| `before`, `after` | text or null | The complete row as canonical JSON in integer units (cents, hundredths of an hour); null before a create and after a delete |
+| `prev_hash`, `entry_hash` | text | Lowercase hex SHA-256 of the previous entry (64 zeros for entry 1) and of this entry |
+

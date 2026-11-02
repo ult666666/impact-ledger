@@ -493,6 +493,38 @@ try {
     assert.deepEqual(httpErrors.slice(-1), [{status: 400, path: '/api/import'}]);
   });
 
+  await test('ledger version control rebuilds every report from an earlier audit entry', async () => {
+    await ready(apiUrl + '/');
+    const history = await (await page.request.get(apiUrl + '/api/history?limit=200')).json();
+    const seed = history.batches.find(batch => batch.kind === 'seed');
+    assert.ok(seed && history.head.entry > seed.last_entry, 'imports in earlier tests add later batches');
+    const control = page.getByLabel('Ledger version', {exact: true});
+    assert.equal(await control.evaluate(select => document.getElementById(select.getAttribute('aria-describedby'))?.textContent.trim().length > 20), true);
+    assert.match(await control.locator('option').first().textContent(), /^Latest · ledger entry/);
+    assert.match(await control.locator(`option[value="${seed.last_entry}"]`).textContent(), new RegExp(`After ${seed.batch_id} · demo seed.*UTC`));
+    await control.focus();
+    await control.selectOption(String(seed.last_entry));
+    await page.getByRole('button', {name: 'Apply filters'}).focus();
+    await page.keyboard.press('Enter');
+    await page.locator('#app-status').filter({hasText: `as recorded through ledger entry ${seed.last_entry}`}).waitFor();
+    const expected = await (await page.request.get(`${apiUrl}/api/summary?as_of_entry=${seed.last_entry}`)).json();
+    assert.deepEqual([expected.totals.sessions, expected.totals.attendance, expected.totals.unique_participants], [36, 342, 55]);
+    assert.equal(await page.locator('#metric-attendance').textContent(), '342');
+    assert.equal(await page.locator('#metric-unique').textContent(), '55');
+    assert.match(await page.locator('#report-filters').textContent(), new RegExp(`Ledger as of entry ${seed.last_entry}.*SHA-256 ${expected.as_of.hash.slice(0, 12)}`));
+    const csv = await download('Export sessions CSV');
+    assert.equal(csv.trim().split(/\r?\n/).length, 37, 'header plus the 36 seeded sessions');
+    await page.screenshot({path: `${screenshots}/ledger-version.png`, fullPage: false});
+    await page.getByRole('button', {name: 'Reset filters'}).click();
+    await page.locator('#app-status').filter({hasText: /Showing/}).waitFor();
+    assert.equal(await control.inputValue(), '');
+    assert.doesNotMatch(await page.locator('#app-status').textContent(), /as recorded/);
+    await ready(staticUrl);
+    assert.ok(await page.getByLabel('Ledger version', {exact: true}).isDisabled());
+    assert.match(await page.locator('#as-of-help').textContent(), /local service/);
+    assert.deepEqual(errors, []);
+  });
+
 } finally {
   await browser.close();
   api.kill('SIGTERM');

@@ -113,7 +113,7 @@ with tempfile.TemporaryDirectory(prefix='impact-ledger-installed-') as directory
             assert json.load(response)['sessions'] == 36
         request = Request(base + '/api/import?kind=sessions', data=source.read_bytes(), headers={'Content-Type': 'text/csv'}, method='POST')
         with urlopen(request, timeout=5) as response:
-            assert response.status == 201 and json.load(response) == {'kind': 'sessions', 'imported': 1}
+            assert response.status == 201 and json.load(response) == {'kind': 'sessions', 'imported': 1, 'batch_id': 'B000379'}
         with urlopen(base + '/api/meta', timeout=5) as response:
             assert json.load(response)['sessions'] == 37
         with urlopen(base + '/styles.css', timeout=5) as response:

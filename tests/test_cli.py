@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -96,6 +97,56 @@ class CLITests(unittest.TestCase):
         result = self.run_cli('import', 'sessions', '/does-not-exist.csv')
         self.assertEqual(result.returncode, 2)
         self.assertNotIn('Traceback', result.stderr)
+
+
+    def test_audit_cli_records_corrections_undoes_imports_and_reports_as_of(self):
+        self.assertEqual(self.run_cli('seed').returncode, 0)
+        sessions = Path(__file__).resolve().parents[1] / 'examples' / 'sessions.csv'
+        imported = json.loads(self.run_cli('import', 'sessions', str(sessions)).stdout)
+        self.assertEqual(imported['batch_id'], 'B000379')
+        corrected = self.run_cli('--actor', 'analyst', 'update-session', 'demo-s01-1', '--actual', '190.50')
+        self.assertEqual(corrected.returncode, 0, corrected.stderr)
+        self.assertEqual(json.loads(corrected.stdout)['after']['actual_cents'], 19050)
+        history = json.loads(self.run_cli('history', '--limit', '2').stdout)
+        self.assertEqual([(b['batch_id'], b['actor'], b['kind']) for b in history['batches']],
+                         [('B000381', 'analyst', 'update'), ('B000379', 'local-cli', 'import')])
+        before = json.loads(self.run_cli('summary', '--as-of-entry', '378').stdout)
+        self.assertEqual((before['totals']['sessions'], before['as_of']['entry']), (36, 378))
+        self.assertEqual(json.loads(self.run_cli('summary', '--as-of', '2000-01-01').stdout)['totals']['sessions'], 0)
+        exported = self.run_cli('export', 'sessions', '--as-of-entry', '378')
+        self.assertEqual(len(exported.stdout.strip().splitlines()), 37)
+        undone = self.run_cli('undo-import', 'B000379')
+        self.assertEqual(json.loads(undone.stdout)['deleted'], 2)
+        again = self.run_cli('undo-import', 'B000379')
+        self.assertEqual((again.returncode, 'already undone' in again.stderr), (2, True))
+        verified = self.run_cli('verify')
+        self.assertEqual(verified.returncode, 0, verified.stdout)
+        head = json.loads(verified.stdout)['head']['hash']
+        self.assertEqual(self.run_cli('verify', '--expect-head', head).returncode, 0)
+        self.assertEqual(self.run_cli('verify', '--expect-head', '0' * 64).returncode, 1)
+        self.assertEqual(self.run_cli('verify', '--expect-head', 'not-a-digest').returncode, 2)
+        conflict = self.run_cli('summary', '--as-of', '2026-01-01', '--as-of-entry', '1')
+        self.assertEqual(conflict.returncode, 2)
+        for args in [['delete-session', 'demo-s01-1'], ['update-session', 'missing', '--actual', '1'], ['update-attendance', 'demo-s01-1-a01', '--participant', 'demo-p001']]:
+            result = self.run_cli(*args)
+            self.assertEqual(result.returncode, 2, args)
+            self.assertNotIn('Traceback', result.stderr)
+
+    def test_verify_cli_exits_one_on_tampering_and_never_creates_a_ledger(self):
+        missing = self.db.with_name('missing.db')
+        result = subprocess.run([sys.executable, '-m', 'impact_ledger', '--db', str(missing), 'verify'], text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(missing.exists())
+        self.run_cli('seed')
+        connection = sqlite3.connect(self.db)
+        connection.execute('DROP TRIGGER audit_log_no_update')
+        connection.execute("UPDATE audit_log SET actor = 'someone' WHERE seq = 7")
+        connection.commit()
+        connection.close()
+        tampered = self.run_cli('verify')
+        self.assertEqual(tampered.returncode, 1)
+        report = json.loads(tampered.stdout)
+        self.assertEqual([(p['code'], p['entry']) for p in report['problems']], [('protection_removed', None), ('hash_mismatch', 7), ('batch_structure', 7)])
 
 
 if __name__ == '__main__':

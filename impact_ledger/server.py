@@ -91,13 +91,19 @@ def create_server(store, port=8765):
                     elif path == '/api/meta':
                         self.query(set())
                         self.respond(200, store.metadata())
+                    elif path == '/api/history':
+                        params = self.query({'limit'})
+                        self.respond(200, store.history(params.get('limit') or 100))
+                    elif path == '/api/verify':
+                        params = self.query({'expect_head'})
+                        self.respond(200, store.verify(params.get('expect_head')))
                     elif path in ('/api/summary', '/api/snapshot', '/api/comparison'):
-                        params = self.query({'start', 'end', 'program'})
+                        params = self.query({'start', 'end', 'program', 'as_of', 'as_of_entry'})
                         method = {'/api/summary': store.summary, '/api/snapshot': store.snapshot, '/api/comparison': store.comparison}[path]
                         result = method(**params)
                         self.respond(200, result)
                     elif path == '/api/export':
-                        params = self.query({'kind', 'start', 'end', 'program'})
+                        params = self.query({'kind', 'start', 'end', 'program', 'as_of', 'as_of_entry'})
                         kind = params.pop('kind', None)
                         self.respond(200, store.export_csv(kind, **params), 'text/csv; charset=utf-8', {'Content-Disposition': f'attachment; filename="impact-ledger-{kind}.csv"'})
                     elif path in ('/api/import', '/api/import/preview'):
@@ -108,7 +114,7 @@ def create_server(store, port=8765):
                     self.import_request(preview=path.endswith('/preview'))
                 elif path in ('/api/import', '/api/import/preview'):
                     self.error(405, 'Use POST for CSV imports and previews.')
-                elif path in {'/api/health', '/api/meta', '/api/summary', '/api/snapshot', '/api/comparison', '/api/export'}:
+                elif path in {'/api/health', '/api/meta', '/api/summary', '/api/snapshot', '/api/comparison', '/api/export', '/api/history', '/api/verify'}:
                     self.error(405, 'Method not allowed for this route.')
                 else:
                     self.error(404, 'Route not found.')
@@ -149,7 +155,8 @@ def create_server(store, port=8765):
             if preview:
                 self.respond(200, store.preview_csv(params.get('kind'), payload))
             else:
-                self.respond(201, store.import_csv(params.get('kind'), payload))
+                # The actor is a fixed label: this loopback service has no authentication.
+                self.respond(201, store.import_csv(params.get('kind'), payload, actor='local-web'))
 
         do_GET = dispatch
         do_POST = dispatch

@@ -1,5 +1,14 @@
 # Release notes
 
+## Unreleased: audit history, as-of reports and undo
+
+- Record every write in an append-only, hash-chained `audit_log` inside the same SQLite transaction: actor label, UTC time, entity, the row before and after, batch ID and the previous entry's SHA-256. Triggers reject `UPDATE`, `DELETE` and out-of-order inserts on the log.
+- Add `verify` (CLI, exit 0/1/2) and `GET /api/verify`: check triggers, digests, links, time order, batch structure, every replayed transition and the current tables, and optionally an expected head digest.
+- Add as-of reports for summary, snapshot, comparison and export (`--as-of`, `--as-of-entry`, `as_of`, `as_of_entry`), rebuilt by replaying the verified log prefix, and a keyboard-accessible **Ledger version** control in the local dashboard.
+- Add audited corrections (`update-session`, `update-attendance`, `delete-session`, `delete-attendance`), `undo-import` as a compensating batch, `history` and `GET /api/history`. Import responses add `batch_id`.
+- Version the schema with `PRAGMA user_version`. A 1.2.x ledger gains a `baseline` batch on first open; a newer schema is refused.
+- Keep current-table reports, the static payload and `demo.json` bytes unchanged. Tests add a random-operation property test, tamper detection, CLI, HTTP and browser coverage.
+
 ## 1.2.1 — exact static payload and one tested publication path
 
 - Refuse unexpected output entries, selected/file symlinks, nonregular entries and source/output overlap before target writes. Rebuild known generated files with private staging and per-file atomic replacement, preserving unselected hardlink originals.
