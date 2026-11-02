@@ -16,7 +16,7 @@ Verified locally on 2 November 2026 on Linux x86_64 with Python **3.13.17** and 
 
 The property test (`tests/test_temporal.py`) runs 12 random sequences of 26 operations: session and attendance imports, corrections, deletions, refused writes and undo attempts, with clock steps of 0 s, 1 s, 2 s, 3 s or 1 hour. A model kept by the test, independent of the audit log, predicts each result. For every recorded time, the microsecond before it and a date before any write, the summary, snapshot, both CSV exports and comparison as of that time must equal the reports of a fresh ledger loaded with the model state through ordinary imports. Each resolved entry must be a batch boundary.
 
-Tamper tests (`tests/test_audit.py`, `tests/test_cli.py`) show that triggers block `UPDATE`, `DELETE`, `INSERT OR REPLACE`, upserts and each kind of out-of-order insert, and that `verify` flags an edited, deleted or reordered entry, dropped triggers, table edits outside the log and forged entries whose digests are valid but whose transitions are not. A truncated or fully rewritten chain passes the chain checks, as documented, and fails with `--expect-head`.
+Tamper tests (`tests/test_audit.py`, `tests/test_cli.py`) show that triggers block `UPDATE`, `DELETE`, `INSERT OR REPLACE` of an existing entry number, upserts and each kind of out-of-order insert, and that `verify` flags an edited, deleted or reordered entry, dropped triggers, table edits outside the log and forged entries whose digests are valid but whose transitions are not. A truncated or fully rewritten chain passes the chain checks, as documented, and fails with `--expect-head`.
 
 Mutation checks ran in a scratch copy, one change at a time. Each was rejected:
 
@@ -28,6 +28,16 @@ Mutation checks ran in a scratch copy, one change at a time. Each was rejected:
 | Delete trigger removed; insert trigger accepts any entry number | Trigger tests |
 | Past reports skip the chain check | Prefix-verification test |
 | Import writes no audit entries | Audit write tests |
+
+### Review after merge (2 November 2026)
+
+An independent review of the merged change found two problems and one gap in the docs:
+
+- `undo-import` compared only each row's current values with the import. After a row was deleted and then imported again by a later batch, undoing the first import deleted the later batch's row, which could then no longer be undone. A row changed and changed back was also accepted. Undo now refuses when any later entry touched a row from the import. `test_undo_refuses_rows_touched_since_the_import_even_when_values_match` fails on the previous code, and the property test's model tracks touched rows.
+- The README's audit example ran `undo-import B000379` without the import that creates batch `B000379`, so it exited 2. The example now imports `examples/sessions.csv` first, as `tests/test_cli.py` does, and explains that `--as-of` matches the time a change was recorded.
+- An `INSERT OR REPLACE` that reuses an existing entry's digest removes that entry, because SQLite fires no delete trigger for a row that REPLACE removes. `verify` reports it; `test_verify_reports_an_entry_removed_by_insert_or_replace` covers it, and SECURITY.md lists it.
+
+After these changes, on Linux x86_64 with Node 24.22.1: `python3 -W error::ResourceWarning -m unittest discover -s tests` **93 passed** on Python 3.13.17 and **93 passed** on 3.11.17; `scripts/verify_package.py` passed after `pip install .`; `npm run typecheck`, `npm run build`, **13** `npm test` tests and **20** `npm run test:browser` journeys passed; `scripts/build_site.py --verify-only` matched all seven files.
 
 ## v1.2.1 — exact static payload and single workflow
 

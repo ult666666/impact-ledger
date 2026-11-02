@@ -81,6 +81,7 @@ Dates use `YYYY-MM-DD`. Hours and USD amounts accept at most two decimal places;
 Every write appends to a hash-chained audit log in the same SQLite transaction: seeding, each CSV import, and the corrections below. An entry records the actor label, a UTC timestamp, the entity and ID, the row before and after the write in integer units, its batch ID, and the SHA-256 digest of the previous entry. SQLite triggers reject `UPDATE` and `DELETE` on the log and any insert that does not extend the chain in order.
 
 ```sh
+python3 -m impact_ledger --db .local/demo.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/demo.db --actor analyst update-session demo-s01-1 --actual 190.50
 python3 -m impact_ledger --db .local/demo.db delete-attendance demo-s01-1-a01
 python3 -m impact_ledger --db .local/demo.db history --limit 5
@@ -90,8 +91,8 @@ python3 -m impact_ledger --db .local/demo.db undo-import B000379
 python3 -m impact_ledger --db .local/demo.db verify --expect-head <hash saved from an earlier verify>
 ```
 
-- `--as-of` takes a UTC timestamp ending in `Z`, or a date meaning the end of that UTC day. `--as-of-entry` names an audit entry. Both rebuild the report by replaying the log after checking its digests, and the response includes an `as_of` block with the entry number and digest. The same options work for `comparison` and `export`, and as `as_of`/`as_of_entry` query parameters in the API.
-- `undo-import BATCH` reverses one CSV import with a compensating batch of deletes. It refuses if a row from that import changed since, or if other records depend on it. History is never deleted.
+- `--as-of` takes a UTC timestamp ending in `Z`, or a date meaning the end of that UTC day. It matches the time each change was recorded, not session dates, so on a demo seeded today `--as-of 2026-09-30` shows an empty ledger. `--as-of-entry` names an audit entry: entry 378 is the demo as seeded, before the import (`B000379`) and the two corrections above. Both rebuild the report by replaying the log after checking its digests, and the response includes an `as_of` block with the entry number and digest. The same options work for `comparison` and `export`, and as `as_of`/`as_of_entry` query parameters in the API.
+- `undo-import BATCH` reverses one CSV import with a compensating batch of deletes. It refuses if a row from that import changed since (even if its values match again, as when a row was deleted and imported again), or if other records depend on it. History is never deleted.
 - `verify` exits **0** when the chain, its triggers, every replayed transition and the current tables agree, **1** with a list of problems otherwise, and **2** for usage or file errors. Save the printed head digest outside the ledger: with `--expect-head`, verify also detects a truncated or fully rewritten log.
 - Ledgers created by 1.2.x are upgraded on first open: their existing rows become one `baseline` batch. Changes made before that point have no history.
 
