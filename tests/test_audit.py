@@ -8,7 +8,7 @@ import unittest
 
 from impact_ledger import audit
 from impact_ledger.store import Store, ValidationError
-from test_store import ATTENDANCE, SESSIONS
+from test_store import ATTENDANCE, SESSION_HEADER, SESSIONS
 
 
 class FakeClock:
@@ -230,6 +230,35 @@ class AuditTests(unittest.TestCase):
         self.assertEqual([b['batch_id'] for b in history['batches']], ['B000013', 'B000009', 'B000005', 'B000001'])
         self.assertEqual(history['batches'][2]['undone_by'], 'B000009')
         self.assertTrue(self.store.verify()['valid'])
+
+    def test_undo_refuses_rows_touched_since_the_import_even_when_values_match(self):
+        # Comparing values alone cannot see these changes: each row ends up
+        # identical to what the import wrote.
+        self.store.import_csv('sessions', SESSIONS.encode())  # B000001: s1-s4
+        self.store.delete_session('s4')
+        again = self.store.import_csv('sessions', (SESSION_HEADER + 's4,Empty Session,2026-02-21,1,30,0\n').encode())
+        with self.assertRaisesRegex(ValidationError, 'Session s4 changed or was deleted'):
+            self.store.undo_import('B000001')  # Would delete the s4 that the later import created.
+        self.assertEqual(self.store.summary()['totals']['sessions'], 4)
+        self.assertEqual(self.store.undo_import(again['batch_id'])['deleted'], 1)
+        extra = self.store.import_csv('sessions', (SESSION_HEADER + 's5,Learning Lab,2026-03-01,1,10,10\n').encode())
+        self.store.update_session('s5', actual='11.00')
+        self.store.update_session('s5', actual='10.00')  # Changed and changed back.
+        with self.assertRaisesRegex(ValidationError, 'Session s5 changed or was deleted'):
+            self.store.undo_import(extra['batch_id'])
+        self.assertTrue(self.store.verify()['valid'])
+
+    def test_verify_reports_an_entry_removed_by_insert_or_replace(self):
+        # REPLACE conflict resolution deletes rows without firing delete
+        # triggers, so the triggers cannot stop this; verify must catch it.
+        self.populated()
+        last, first = self.log()[-1], self.log()[0]
+        self.raw(f"INSERT OR REPLACE INTO audit_log VALUES ({last['seq'] + 1}, '{last['recorded_at']}', 'x', "
+                 f"'B{last['seq'] + 1:06d}', 'delete', NULL, 'delete', 'session', 's1', '{{}}', NULL, "
+                 f"'{last['entry_hash']}', '{first['entry_hash']}')")
+        self.assertNotIn(1, [entry['seq'] for entry in self.log()])
+        self.assertIn(('sequence_gap', 2), self.problems())
+        self.assertFalse(self.store.verify()['valid'])
 
     def test_schema_zero_ledgers_gain_a_baseline_batch(self):
         legacy = Path(self.temp.name) / 'legacy.db'

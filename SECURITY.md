@@ -13,6 +13,7 @@ Every write appends hash-chained entries to `audit_log` in the same transaction 
 This makes the ledger **tamper-evident, not tamper-proof**. A local administrator, or any program that can write the database file, can still:
 
 - drop the triggers and then edit or delete entries (verify reports the missing triggers and the broken digests or links);
+- remove an entry with an `INSERT OR REPLACE` that reuses its digest, because SQLite fires no delete trigger for a row that REPLACE removes (verify reports the gap and the broken links);
 - change `sessions` or `attendance` directly without a log entry (verify reports `state_mismatch`);
 - delete the newest entries and restore the tables, or rewrite the whole log with freshly computed digests. The chain alone cannot detect this; `verify --expect-head` does, if you saved the head digest somewhere the same person cannot change;
 - restore an older copy of the file, replace it, or delete it;

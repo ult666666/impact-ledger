@@ -238,7 +238,7 @@ class Store:
             raise ValidationError('Batch IDs look like B000012.')
         with self._connection() as connection:
             connection.execute('BEGIN IMMEDIATE')
-            created = connection.execute('SELECT batch_kind, entity, entity_id, after FROM audit_log WHERE batch_id = ? ORDER BY seq', (batch_id,)).fetchall()
+            created = connection.execute('SELECT batch_kind, entity, entity_id, after, seq FROM audit_log WHERE batch_id = ? ORDER BY seq', (batch_id,)).fetchall()
             if not created:
                 raise ValidationError('No batch with that ID exists in this ledger.')
             if created[0][0] != 'import':
@@ -248,10 +248,14 @@ class Store:
                 raise ValidationError(f'Batch {batch_id} was already undone by {undone[0]}.')
             entity = created[0][1]
             keys = {row[2] for row in created}
+            # Any later entry for a created row means it changed, even if its values
+            # match again: deleted and imported again, or changed and changed back.
+            touched = {row[0] for row in connection.execute('SELECT entity_id FROM audit_log WHERE seq > ? AND entity = ?',
+                                                            (created[-1][4], entity))} & keys
             changes = []
-            for _, _, key, after in reversed(created):
+            for _, _, key, after, _ in reversed(created):
                 current = self._record(connection, entity, key)
-                if current is None or audit.canonical(current) != after:
+                if key in touched or current is None or audit.canonical(current) != after:
                     raise ValidationError(f'{entity.capitalize()} {key} changed or was deleted after this import. Correct it explicitly; nothing was undone.')
                 changes.append(('delete', entity, current, None))
             if entity == 'session':

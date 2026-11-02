@@ -63,6 +63,7 @@ class TemporalPropertyTests(unittest.TestCase):
         store = Store(Path(self.temp.name) / f'ledger-{seed}.db', clock=clock)
         state = {'session': {}, 'attendance': {}}
         imports = {}  # batch_id -> (entity, created ids)
+        touched = set()  # (entity, id) changed or deleted after its import
         checkpoints = [(None, 0, copy.deepcopy(state))]
         counter = 0
 
@@ -109,6 +110,7 @@ class TemporalPropertyTests(unittest.TestCase):
                     store.update_session(key, **{arguments[0]: arguments[1]})
                     self.assertFalse(expect_refusal)
                     state['session'][key][field] = replacement
+                    touched.add(('session', key))
                 except ValidationError:
                     self.assertTrue(expect_refusal)
                     continue
@@ -117,10 +119,12 @@ class TemporalPropertyTests(unittest.TestCase):
                 sid, pid = rng.choice(free_pairs())
                 store.update_attendance(key, session_id=sid, participant_id=pid)
                 state['attendance'][key].update(session_id=sid, participant_id=pid)
+                touched.add(('attendance', key))
             elif choice < 0.8 and state['attendance']:
                 key = rng.choice(sorted(state['attendance']))
                 store.delete_attendance(key)
                 del state['attendance'][key]
+                touched.add(('attendance', key))
             elif choice < 0.88:
                 key = rng.choice(sorted(state['session']))
                 used = any(row['session_id'] == key for row in state['attendance'].values())
@@ -128,6 +132,7 @@ class TemporalPropertyTests(unittest.TestCase):
                     store.delete_session(key)
                     self.assertFalse(used)
                     del state['session'][key]
+                    touched.add(('session', key))
                 except ValidationError:
                     self.assertTrue(used)
                     continue
@@ -135,7 +140,8 @@ class TemporalPropertyTests(unittest.TestCase):
                 batch = rng.choice(sorted(imports))
                 entity, keys = imports[batch]
                 created = [entry for entry in self.batch_entries(store, batch)]
-                allowed = all(key in state[entity] and audit.canonical(state[entity][key]) == after for key, after in created)
+                allowed = all(key in state[entity] and (entity, key) not in touched and audit.canonical(state[entity][key]) == after
+                              for key, after in created)
                 if entity == 'session':
                     allowed = allowed and not any(row['session_id'] in keys for row in state['attendance'].values())
                 try:
