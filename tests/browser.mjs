@@ -89,7 +89,7 @@ async function bounded(promise) {
 try {
   await test('local dashboard renders synthetic accounting and accessible chart tables', async () => {
     await ready(apiUrl);
-    await page.getByRole('heading', {name: 'Good work. Clearer data.'}).waitFor();
+    await page.getByRole('heading', {name: 'Overview', level: 1, exact: true}).waitFor();
     assert.match(await page.locator('#mode-badge').innerText(), /Local service/);
     assert.equal(await page.locator('#metric-unique').innerText(), '55');
     assert.equal(await page.locator('#metric-attendance').innerText(), '342');

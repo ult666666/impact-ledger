@@ -2,28 +2,33 @@
 
 [![CI](https://github.com/ult666666/impact-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/ult666666/impact-ledger/actions/workflows/ci.yml)
 
-A local-first operations dashboard for understanding nonprofit participation and session spending. A Python standard-library HTTP API and SQLite ledger power a compiled TypeScript interface with **zero browser runtime dependencies**.
+A dashboard for a fictional nonprofit's participation and session spending. A Python
+standard-library HTTP API and a SQLite ledger serve a TypeScript interface with no browser
+runtime dependencies. Every record is synthetic.
 
-**All records are synthetic.** This is an educational engineering project, with no real organization, participant information, or production-use claim. Participation and spending describe activity; they do not establish outcomes or causal impact.
-
-[Read-only synthetic preview](https://ult666666.github.io/impact-ledger/) · [中文指南](docs/README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Data dictionary](docs/DATA_DICTIONARY.md) · [API](docs/API.md) · [Release notes](CHANGELOG.md) · [Verification](docs/VERIFICATION.md)
+[Static preview](https://ult666666.github.io/impact-ledger/) · [中文指南](docs/README.zh-CN.md) · [Guide](docs/GUIDE.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Data dictionary](docs/DATA_DICTIONARY.md) · [Release notes](CHANGELOG.md)
 
 ![Impact Ledger dashboard with synthetic data](docs/screenshots/desktop.png)
 
-## Run locally
+## Try it
 
-Requires Python **3.11+**. The committed frontend is already compiled; Node is needed only to edit/rebuild it.
+Requires Python 3.11 or newer. The compiled frontend is committed, so Node is only needed to
+change it.
 
 ```sh
 python3 -m impact_ledger --db .local/demo.db seed
 python3 -m impact_ledger --db .local/demo.db serve
 ```
 
-Open **http://127.0.0.1:8765**. To use another local port, add `--port 8766` to `serve`. Stop with Ctrl-C. Seed refuses an existing nonempty ledger; choose a fresh database path to repeat the demo. The server always binds to loopback.
+Open http://127.0.0.1:8765. Add `--port 8766` to `serve` for another port; the server only
+binds to loopback. `seed` refuses a ledger that already has data, so pick a new database path to
+start over.
 
-The deterministic July–September 2026 demo contains **36 sessions, 342 attendances, 55 participants, 684 participant hours, $7,872 planned spending, and $7,851 actual spending**. The $21 negative variance means spending is under budget. These are fixture totals, not organizational results.
+The seeded demo runs from July to September 2026, with 36 sessions and 342 attendances.
+Spending is $7,851 against a $7,872 budget. The [guide](docs/GUIDE.md#demo-data) lists all the
+demo totals.
 
-Optional installed CLI:
+To install the command instead:
 
 ```sh
 python3 -m venv .local/venv
@@ -32,25 +37,28 @@ python3 -m venv .local/venv
 .local/venv/bin/impact-ledger --db .local/installed-demo.db serve
 ```
 
-## What you can inspect
+## What it does
 
-- Apply inclusive date and program filters to every metric, chart, table, and export.
-- Count people distinctly across selected sessions, attendance once per person/session, and spending once per session.
-- Opt in to **Compare prior period** for an explicit applied start/end date range. The previous window has the same number of calendar days and uses the same program. Both windows show totals and signed deltas; people can recur in both.
-- Choose **Print report** for a synthetic stakeholder report with applied filters, all current totals, charts, tables, and comparison when enabled. Browser print settings can save a PDF. Printing waits until the view, any import refresh and any enabled comparison have finished loading, and the button says what it is waiting for. If a finished comparison is unavailable, the report prints the reason.
-- Compare actual and budget in USD. Percent variance uses budget as denominator and is undefined at zero budget.
-- Open the exact accessible tables under both charts; use a keyboard to navigate the session table on small screens.
-- Optionally choose **Preview CSV** before import to review row/column errors against the current local ledger. Preview adds no rows or reservations; file/type changes clear it. [Preview example](docs/screenshots/import-preview.png).
-- Import UTF-8 CSV atomically. Files with bad headers, invalid dates/amounts, duplicate IDs, missing session references, or excess size/rows add **nothing**.
-- Export both session and attendance CSVs for the **applied** filters. Edits in the form take effect when you choose Apply filters. Import completion reloads the latest submitted filters, including a request still loading, without applying draft edits.
-- Try an empty date range: the interface reports zero activity rather than substituting demo totals.
-- Choose an earlier **Ledger version** to rebuild every total, chart, table, comparison, export and print report from the audit log as it stood after that change. The status line and print report name the audit entry and its SHA-256 digest, so a past report can be reproduced exactly.
+- Filters by date range and program, applied to every metric, chart, table, export and printed
+  report.
+- Counts each person once across the selected sessions, each attendance once per person and
+  session, and spending once per session. Budget variance is actual minus budget.
+- Compares a date range with the period of the same length just before it, for the same
+  program ([example](docs/screenshots/comparison.png)).
+- Prints a report of the current view, which the browser can save as a PDF
+  ([example](docs/screenshots/print-report.png)).
+- Imports session and attendance CSV files atomically: a file with one bad row adds nothing. An
+  optional preview lists the errors first ([example](docs/screenshots/import-preview.png)).
+- Records every change in a hash-chained audit log, rebuilds any report as it stood after an
+  earlier change, and undoes an import with a compensating batch.
+- Exports sessions and attendance as CSV for the applied filters.
 
-Comparison requires both explicit dates. Set them and choose Apply filters if a visible message requests them. A 2026-09-01 through 2026-09-30 current window compares with 2026-08-02 through 2026-08-31, not the previous calendar month. Empty windows show zeros. Signed changes describe activity; lower variance alone does not establish improvement. [Comparison and print example](docs/screenshots/print-report.png).
+The [guide](docs/GUIDE.md) describes each feature, the CSV rules and the command-line
+workflows.
 
-## CSV and CLI handoff
+## Command line
 
-Import sessions before attendance. A session can have zero attendance; its spending is still included. Each file is append-only. Existing IDs and duplicate participant/session pairs are rejected.
+The same ledger works without the browser:
 
 ```sh
 python3 -m impact_ledger --db .local/example.db init
@@ -62,9 +70,7 @@ python3 -m impact_ledger --db .local/demo.db comparison --start 2026-09-01 --end
 python3 -m impact_ledger --db .local/example.db export sessions --start 2026-10-01 --end 2026-10-31 --output .local/sessions.csv
 ```
 
-`preview-import KIND FILE` requires an existing initialized ledger and prints JSON: exit **0** for valid, **1** for CSV validation problems, **2** for usage, file I/O, or database failure. It never creates missing database paths or initializes an existing empty database. Preview is advisory: another import can change IDs or references afterwards. Import always revalidates against current state and atomically rejects conflicts. Both paths use the same parser and exact field rules; at most 100 errors are displayed.
-
-CSV headers must match exactly and in this order:
+Import sessions before attendance. The CSV headers must be these, in this order:
 
 ```csv
 session_id,program,session_date,duration_hours,budget,actual
@@ -74,33 +80,28 @@ session_id,program,session_date,duration_hours,budget,actual
 attendance_id,session_id,participant_id
 ```
 
-Dates use `YYYY-MM-DD`. Hours and USD amounts accept at most two decimal places; exponent notation, negatives, NaN, and infinity are rejected. One import is limited to **1 MiB and 5,000 data rows**. See the [data dictionary](docs/DATA_DICTIONARY.md) for bounds and definitions.
-
-## Audit history, past reports and undo
-
-Every write appends to a hash-chained audit log in the same SQLite transaction: seeding, each CSV import, and the corrections below. An entry records the actor label, a UTC timestamp, the entity and ID, the row before and after the write in integer units, its batch ID, and the SHA-256 digest of the previous entry. SQLite triggers reject `UPDATE` and `DELETE` on the log and any insert that does not extend the chain in order.
+Audit history has its own commands:
 
 ```sh
 python3 -m impact_ledger --db .local/demo.db import sessions examples/sessions.csv
 python3 -m impact_ledger --db .local/demo.db --actor analyst update-session demo-s01-1 --actual 190.50
 python3 -m impact_ledger --db .local/demo.db delete-attendance demo-s01-1-a01
 python3 -m impact_ledger --db .local/demo.db history --limit 5
-python3 -m impact_ledger --db .local/demo.db summary --as-of 2026-09-30
 python3 -m impact_ledger --db .local/demo.db summary --as-of-entry 378
 python3 -m impact_ledger --db .local/demo.db undo-import B000379
 python3 -m impact_ledger --db .local/demo.db verify --expect-head <hash saved from an earlier verify>
 ```
 
-- `--as-of` takes a UTC timestamp ending in `Z`, or a date meaning the end of that UTC day. It matches the time each change was recorded, not session dates, so on a demo seeded today `--as-of 2026-09-30` shows an empty ledger. `--as-of-entry` names an audit entry: entry 378 is the demo as seeded, before the import (`B000379`) and the two corrections above. Both rebuild the report by replaying the log after checking its digests, and the response includes an `as_of` block with the entry number and digest. The same options work for `comparison` and `export`, and as `as_of`/`as_of_entry` query parameters in the API.
-- `undo-import BATCH` reverses one CSV import with a compensating batch of deletes. It refuses if a row from that import changed since (even if its values match again, as when a row was deleted and imported again), or if other records depend on it. History is never deleted.
-- `verify` exits **0** when the chain, its triggers, every replayed transition and the current tables agree, **1** with a list of problems otherwise, and **2** for usage or file errors. Save the printed head digest outside the ledger: with `--expect-head`, verify also detects a truncated or fully rewritten log.
-- Ledgers created by 1.2.x are upgraded on first open: their existing rows become one `baseline` batch. Changes made before that point have no history.
+Entry 378 is the demo as seeded, before the import and the two corrections above. `verify`
+checks the hash chain, its triggers and every replayed change against the current tables. Save
+the head digest it prints somewhere else: with `--expect-head`, it also detects a log that was
+cut short or rewritten. The [guide](docs/GUIDE.md#audit-history-past-reports-and-undo) explains
+`--as-of`, exit codes and upgrades from 1.2.x.
 
-The actor is a self-declared label (`--actor`, default `local-cli`; web imports use `local-web`), not an authenticated identity. See [what the log does and does not protect](SECURITY.md) and the [design](docs/ARCHITECTURE.md#audit-history-and-as-of-reports).
+## Build and test
 
-## Rebuild and test
-
-Requires Node **24+**. TypeScript and Playwright are pinned in `package-lock.json`; Python has no third-party runtime packages.
+Requires Node 24 or newer. TypeScript and Playwright are pinned in `package-lock.json`; Python
+uses no third-party packages at run time.
 
 ```sh
 npm ci --ignore-scripts
@@ -113,39 +114,33 @@ npm run test:browser
 python3 scripts/build_site.py --verify-only
 ```
 
-On Linux, use `npx playwright install --with-deps chromium` to install browser system libraries. Tests use temporary local databases and launch real loopback HTTP services. Browser checks exercise both local and static modes and save screenshots under the git-ignored `test-results/screenshots/`. To refresh the committed images in `docs/screenshots/`, run `IMPACT_LEDGER_UPDATE_SCREENSHOTS=1 npm run test:browser`.
+On Linux, `npx playwright install --with-deps chromium` also installs the browser's system
+libraries. The browser tests run the local service and the static preview and save screenshots
+under the ignored `test-results/screenshots/`; `IMPACT_LEDGER_UPDATE_SCREENSHOTS=1` refreshes
+the images in `docs/screenshots/`.
 
-## Static preview
+`npm run build` also writes `site/`, a read-only static preview with a fixed synthetic
+snapshot, where filters and CSV export work but import does not. Serve it with
+`python3 -m http.server 8000 --bind 127.0.0.1 --directory site`. The
+[guide](docs/GUIDE.md#static-preview) covers the payload, its verification and the CI
+deployment.
 
-`npm run build` also creates `site/`: the same interface, a deterministic synthetic snapshot, functional filters, and client-side CSV export. CSV validation preview and import are disabled with an explanation because checking ledger IDs/references requires the local API and SQLite. Preview it with:
+## Limits
 
-```sh
-python3 -m http.server 8000 --bind 127.0.0.1 --directory site
-```
+- It is not a case-management or accounting system: there is no authentication, backup,
+  eligibility population or outcome data.
+- Participation and spending describe activity; they do not show outcomes or causal impact.
+- The audit log is tamper-evident, not tamper-proof, and actor labels are self-declared.
+- Past reports replay the log, so they slow down as history grows. With 25,000 log entries, a
+  summary as of the latest entry took 315 ms; from the current tables it took 68 ms
+  (`python3 scripts/benchmark_history.py`).
+- Do not import real participant records.
 
-Open **http://127.0.0.1:8000**. Relative asset URLs work under a GitHub Pages repository path. You can also build from committed assets without Node and select a separate output directory whose parent already exists:
+[Architecture](docs/ARCHITECTURE.md) and the [security policy](SECURITY.md) cover these in
+detail.
 
-```sh
-python3 scripts/build_site.py --output-directory '/tmp/impact preview'
-python3 scripts/build_site.py --output-directory '/tmp/impact preview' --verify-only
-```
-
-The payload is exactly seven regular files: `index.html`, `app.js`, `model.js`, `styles.css`, `favicon.svg`, `demo.json`, and an empty `.nojekyll`.
-
-- The builder refuses unsafe output paths and never deletes unknown files. Move an unknown file or folder out of the output directory yourself; there is no force option.
-- A rebuild replaces only missing or changed generated files.
-- `--verify-only` checks an existing output without changing it. It prints a JSON receipt of byte counts and SHA-256 digests and exits **0** on an exact match, **1** on any mismatch or I/O failure, and **2** on a usage error.
-
-The [architecture notes](docs/ARCHITECTURE.md#read-only-static-mode) give the full path, verification and atomic-replacement rules.
-
-The single [CI and Pages workflow](.github/workflows/ci.yml) runs the Python matrix and one frontend build/model/Chromium path. After browser checks it verifies the same `site/` bytes, then uploads only on non-PR `main`. Deployment needs both test jobs and consumes that run's tested artifact. PRs and non-main manual runs get all tests and skip publication. Only the gated deploy job has Pages/token write permissions; concurrency is scoped by ref. Screenshot artifacts expire after seven days. Repository Pages must already use GitHub Actions. No Python write API, databases, import CSVs, dependencies, wheels, or local reports are in the payload.
-
-## Scope and tradeoffs
-
-Built to make data-to-stakeholder handoffs inspectable: strict inputs, explicit denominators, recoverable errors, and bilingual examples. There are no external integrations, provider calls, credentials, analytics beacons, or paid services. The interface loads no third-party assets.
-
-This is **not a production case-management or accounting system**. No authentication, real eligibility population, outcomes, capacity, partial-attendance tracking, backup management, or causal identification is implemented. The audit history is tamper-evident, not tamper-proof: anyone who can edit the database file can rewrite it, and only a head digest saved elsewhere reveals a consistent rewrite. Actor labels are not authenticated. Past reports replay the log, so they take longer as history grows: on a 25,000-entry synthetic ledger, a summary as of the latest entry took 315 ms against 68 ms from the current tables (`python3 scripts/benchmark_history.py`). Session costs are direct session amounts, not organization-wide expenditures. Do not import private or real participant records. See [limitations and architecture](docs/ARCHITECTURE.md) and [security policy](SECURITY.md).
-
-The implementation was developed with AI assistance. Automated checks and a rendered browser review cover the scope recorded in [VERIFICATION.md](docs/VERIFICATION.md); they do not replace independent human review or establish real-world impact.
+Built with AI coding assistants. I reviewed the code and the tests that check it, but no
+independent audit has been done; [VERIFICATION.md](docs/VERIFICATION.md) records what the checks
+cover.
 
 MIT licensed. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -1,5 +1,20 @@
 # Verification record
 
+## Unreleased: plainer dashboard and README
+
+Verified locally on 2 November 2026 on Linux x86_64 with Python 3.13.17 and 3.11, Node 24.22.1, TypeScript 5.9.3 and Playwright 1.61.1, driving a preinstalled Chromium build through a `PLAYWRIGHT_BROWSERS_PATH` alias.
+
+| Command / journey | Observed result |
+| --- | --- |
+| `python3 -W error::ResourceWarning -m unittest discover -s tests` | 93 passed on Python 3.13.17 and on 3.11 |
+| `npm run typecheck` / `npm run build` / `npm test` | Passed; 13 model tests; `model.js` and `demo.json` unchanged |
+| `npm run test:browser` | 20 Chromium journeys passed in local and static modes |
+| `python3 scripts/build_site.py --verify-only` | Seven files matched |
+| `scripts/verify_package.py` after `pip install .` in a fresh virtual environment | Passed |
+| axe-core 4.14.0 at 1440 and 390 px: local dashboard, prior-period comparison open, static preview | 0 violations; the previous page had 121 color-contrast nodes and a label mismatch on the brand link |
+
+The browser journeys caught one layout regression during the change: with CSV preview errors shown, the page scrolled sideways at 390 px because the import panel's grid track grew to the error table's minimum width. The grid now uses `minmax(0, 1fr)` tracks, and the journey passes.
+
 ## Unreleased: audit history, as-of reports and undo
 
 Verified locally on 2 November 2026 on Linux x86_64 with Python **3.13.17** and **3.11.17**, Node **24.22.1**, TypeScript **5.9.3** and Playwright **1.61.1**. Browser downloads were blocked in that environment, so Playwright drove a preinstalled Chromium 153 build through a `PLAYWRIGHT_BROWSERS_PATH` alias; CI uses Playwright's own Chromium. These are local results.

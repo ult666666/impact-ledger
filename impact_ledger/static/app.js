@@ -11,7 +11,8 @@ const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', cur
 const dateLabel = (value) => new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + 'T00:00:00Z'));
 const monthLabel = (value) => new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value + '-01T00:00:00Z'));
 const isStatic = document.documentElement.dataset.mode === 'static';
-const colors = ['#718b59', '#365e4c', '#b5bf88', '#879d7a', '#768f95'];
+// Program bars share the accent color; each bar sits next to its own label and value.
+const barColor = '#2f5d4c';
 let snapshot = null;
 let metadata = null;
 let history = null;
@@ -57,7 +58,7 @@ function clearComparison(message) {
 }
 async function refreshComparison() {
     const enabled = element('compare-prior').checked;
-    clearComparison(enabled ? 'Updating comparison for the applied filters…' : 'Compare the immediately preceding equal-duration period using applied filters.');
+    clearComparison(enabled ? 'Updating comparison for the applied filters…' : 'Compares the applied dates with the period of the same length just before them.');
     if (!enabled)
         return;
     if (summaryState !== 'ready') {
@@ -78,7 +79,7 @@ async function refreshComparison() {
             tableRow(body, [measure.label, measureValue(result.current.totals[measure.key], measure.currency), measureValue(result.previous.totals[measure.key], measure.currency), measureValue(result.deltas[measure.key], measure.currency, true)]);
         element('comparison-panel').hidden = false;
         comparisonState = 'ready';
-        setText('comparison-status', 'Comparison reflects the applied dates and program. Delta = current − previous.');
+        setText('comparison-status', 'Comparison reflects the applied dates and program.');
     }
     catch (error) {
         if (revision !== comparisonRevision)
@@ -132,7 +133,7 @@ async function loadHistory() {
     const select = element('as-of-entry');
     if (isStatic) {
         select.disabled = true;
-        setText('as-of-help', 'Ledger history needs the local service. This static preview shows one fixed synthetic snapshot.');
+        setText('as-of-help', 'Ledger history needs the local service. This preview shows one fixed snapshot.');
         return;
     }
     history = await json('./api/history?limit=200');
@@ -143,8 +144,8 @@ async function loadHistory() {
         select.add(new Option(versionLabel(batch), String(batch.last_entry)));
     select.value = [...select.options].some(option => option.value === selected) ? selected : '';
     setText('as-of-help', history.batches_total > history.batches.length
-        ? `Rebuild every report from the verified audit log as it stood after an earlier change. The ${number(history.batches.length)} most recent changes are listed.`
-        : 'Rebuild every report from the verified audit log as it stood after an earlier change.');
+        ? `Pick an earlier version to rebuild every report from the audit log as it stood then. The ${number(history.batches.length)} most recent changes are listed.`
+        : 'Pick an earlier version to rebuild every report from the audit log as it stood then.');
 }
 function showError(error) {
     setText('app-error', error instanceof Error ? error.message : 'Something went wrong. Please try again.');
@@ -205,7 +206,7 @@ function renderPrograms(summary) {
     const body = element('program-body');
     container.replaceChildren();
     body.replaceChildren();
-    summary.programs.forEach((row, index) => {
+    summary.programs.forEach(row => {
         const share = summary.totals.attendance ? row.attendance / summary.totals.attendance * 100 : 0;
         const item = document.createElement('div');
         item.className = 'program-item';
@@ -224,8 +225,8 @@ function renderPrograms(summary) {
         value.append(percentage);
         line.append(label, value);
         const track = svgNode('svg', { viewBox: '0 0 300 6', preserveAspectRatio: 'none', class: 'program-track', 'aria-hidden': 'true' });
-        track.append(svgNode('rect', { x: 0, y: 0, width: 300, height: 6, rx: 3, fill: '#f0f3e8' }));
-        track.append(svgNode('rect', { x: 0, y: 0, width: share * 3, height: 6, rx: 3, fill: colors[index % colors.length] ?? colors[0] ?? '#718b59' }));
+        track.append(svgNode('rect', { x: 0, y: 0, width: 300, height: 6, rx: 3, fill: '#e8efea' }));
+        track.append(svgNode('rect', { x: 0, y: 0, width: share * 3, height: 6, rx: 3, fill: barColor }));
         item.append(line, track);
         container.append(item);
         tableRow(body, [row.program, number(row.attendance), number(row.unique_participants), money(row.budget), money(row.actual)]);
@@ -253,7 +254,7 @@ function render(summary) {
     const end = summary.filters.end ?? metadata?.end;
     setText('reporting-window', start && end ? `${dateLabel(start)} – ${dateLabel(end)}` : 'All recorded dates');
     setText('filter-count', `${number(summary.programs.length)} programs · ${number(totals.sessions)} sessions`);
-    setText('app-status', `Showing ${number(totals.sessions)} synthetic sessions${summary.filters.program ? ' · ' + summary.filters.program : ' across all programs'}${summary.as_of ? ` as recorded through ledger entry ${number(summary.as_of.entry)}` : ''}.`);
+    setText('app-status', `Showing ${number(totals.sessions)} sessions${summary.filters.program ? ' · ' + summary.filters.program : ' across all programs'}${summary.as_of ? ` as recorded through ledger entry ${number(summary.as_of.entry)}` : ''}.`);
     setText('ledger-count', `${number(totals.sessions)} sessions in this view`);
     element('empty-state').hidden = totals.sessions !== 0;
     element('chart-grid').hidden = totals.sessions === 0;
@@ -474,9 +475,9 @@ for (const link of document.querySelectorAll('.nav-link')) {
 }
 async function start() {
     updateReportReadiness();
-    setText('mode-badge', isStatic ? 'Static preview · synthetic' : 'Local service · synthetic');
+    setText('mode-badge', isStatic ? 'Static preview' : 'Local service');
     if (isStatic) {
-        setText('import-help', 'This static preview uses a bundled synthetic snapshot. CSV preview against SQLite requires the local API; to preview or import CSV, run the local service using the README quickstart. Filters and CSV exports work here.');
+        setText('import-help', 'This static preview shows a fixed snapshot. Filters and CSV exports work here; CSV preview and import need the local API, so run the local service as the README describes.');
         updateImportActions();
         element('import-file').disabled = true;
         // The record-type selector stays available so both blank templates can be downloaded.

@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased: plainer dashboard and README
+
+- Replace the dashboard's slogans and section eyebrows with plain titles ("Overview", "Attendance by month", "Session ledger", "Import CSV", "Metric guide"), and state that the data is synthetic once, under the page title. The sidebar motto, decorative glyphs and the motto footer are gone; the footer names the project, its source and its license.
+- Rewrite the stylesheet in readable form with one type scale (12 px and up instead of 8 to 10 px), system fonts, one green accent and right-aligned numbers. Text meets WCAG AA contrast, inputs and chart bars reach 3:1, and axe-core finds no violations in local or static mode (it found 121 low-contrast nodes before).
+- Shorten the README to setup, features, commands, build and limits. The detailed walkthrough, CSV rules, audit workflow, static preview notes and demo totals move to `docs/GUIDE.md`.
+- Keep the API, the CLI, business rules, `model.js` and `demo.json` unchanged. The browser tests follow the new page title, and the committed screenshots are regenerated.
+
 ## Unreleased: audit history, as-of reports and undo
 
 - Record every write in an append-only, hash-chained `audit_log` inside the same SQLite transaction: actor label, UTC time, entity, the row before and after, batch ID and the previous entry's SHA-256. Triggers reject `UPDATE`, `DELETE` and out-of-order inserts on the log.
