@@ -1,6 +1,6 @@
 # Verification record
 
-## Unreleased: plainer dashboard and README
+## v1.3.0 — plainer dashboard and README
 
 Verified locally on 2 November 2026 on Linux x86_64 with Python 3.13.17 and 3.11, Node 24.22.1, TypeScript 5.9.3 and Playwright 1.61.1, driving a preinstalled Chromium build through a `PLAYWRIGHT_BROWSERS_PATH` alias.
 
@@ -15,7 +15,7 @@ Verified locally on 2 November 2026 on Linux x86_64 with Python 3.13.17 and 3.11
 
 The browser journeys caught one layout regression during the change: with CSV preview errors shown, the page scrolled sideways at 390 px because the import panel's grid track grew to the error table's minimum width. The grid now uses `minmax(0, 1fr)` tracks, and the journey passes.
 
-## Unreleased: audit history, as-of reports and undo
+## v1.3.0 — audit history, as-of reports and undo
 
 Verified locally on 2 November 2026 on Linux x86_64 with Python **3.13.17** and **3.11.17**, Node **24.22.1**, TypeScript **5.9.3** and Playwright **1.61.1**. Browser downloads were blocked in that environment, so Playwright drove a preinstalled Chromium 153 build through a `PLAYWRIGHT_BROWSERS_PATH` alias; CI uses Playwright's own Chromium. These are local results.
 
