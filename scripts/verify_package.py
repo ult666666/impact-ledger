@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='impact-ledger-installed-') as directory:
     installed = subprocess.run([sys.executable, '-c', "import json, impact_ledger; from importlib.metadata import version; print(json.dumps([impact_ledger.__version__, version('impact-ledger'), impact_ledger.__file__]))"], cwd=directory, check=True, capture_output=True, text=True, timeout=10)
     package_version, distribution_version, module_path = json.loads(installed.stdout)
-    assert package_version == distribution_version == '1.2.1'
+    assert package_version == distribution_version == '1.3.0'
     assert Path(module_path).resolve() != ROOT / 'impact_ledger' / '__init__.py'
     for name in ['__init__.py', 'store.py', 'csv_import.py', 'server.py', '__main__.py']:
         assert Path(module_path).with_name(name).read_bytes() == (ROOT / 'impact_ledger' / name).read_bytes()
@@ -125,4 +125,4 @@ with tempfile.TemporaryDirectory(prefix='impact-ledger-installed-') as directory
     finally:
         server.terminate()
         server.wait(timeout=5)
-print('Installed 1.2.1 wheel verified outside checkout: exact seven-file source-builder/verifier/installed-asset/snapshot parity; console preview CLI exits 0/1/2, no ledger initialization or SQL writes, closed-WAL library/CLI semantics, preview API diagnostics, separate real import, summary/comparison CLI/API, health, exact HTML/JS and print CSS assets.')
+print('Installed 1.3.0 wheel verified outside checkout: exact seven-file source-builder/verifier/installed-asset/snapshot parity; console preview CLI exits 0/1/2, no ledger initialization or SQL writes, closed-WAL library/CLI semantics, preview API diagnostics, separate real import, summary/comparison CLI/API, health, exact HTML/JS and print CSS assets.')
